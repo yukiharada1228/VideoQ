@@ -164,7 +164,10 @@
         "logs:TagResource",
         "logs:UntagResource"
       ],
-      "Resource": "arn:aws:logs:ap-northeast-1:<ACCOUNT_ID>:log-group:/aws/lambda/videoq-worker-prod:*"
+      "Resource": [
+        "arn:aws:logs:ap-northeast-1:<ACCOUNT_ID>:log-group:/aws/lambda/videoq-worker-prod",
+        "arn:aws:logs:ap-northeast-1:<ACCOUNT_ID>:log-group:/aws/lambda/videoq-worker-prod:*"
+      ]
     },
     {
       "Sid": "OperationsTopicManage",
