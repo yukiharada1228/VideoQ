@@ -1,18 +1,17 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { z } from "@hono/zod-openapi";
+import { z } from "zod";
 import type { AppEnv } from "../types/bindings";
 
 /** 新 API 契約のエラー封筒。 */
 export const errorBodySchema = z
   .object({
     error: z.object({
-      code: z.string().openapi({ example: "VALIDATION_ERROR" }),
-      message: z.string().openapi({ example: "Invalid request" }),
+      code: z.string(),
+      message: z.string(),
       details: z.unknown().optional(),
     }),
-  })
-  .openapi("ErrorResponse");
+  });
 
 export type ErrorBody = z.infer<typeof errorBodySchema>;
 
@@ -31,7 +30,7 @@ export function toErrorBody(
 }
 
 /**
- * OpenAPI feature 向けの typed error。error-handler が `{ error: { code, message, details? } }` へ変換する。
+ * Application error converted to the shared JSON envelope by error-handler.
  */
 export class ApiError extends Error {
   readonly status: ContentfulStatusCode;

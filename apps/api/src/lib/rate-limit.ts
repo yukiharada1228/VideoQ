@@ -26,6 +26,10 @@ export const THROTTLE_RATES = {
   // 共有スラッグは利用者が決める短い文字列なので推測できる。解決に「失敗した」
   // 試行だけを絞り、正規の共有視聴（Range 連打）には一切かけない。
   share_slug_probe_ip: { limit: 30, periodSec: 3600 },
+  // MCP は HTTP 200 内に tool error を返すため、transport の外ではなく
+  // tool 実行直前に user 単位で消費する。書き込みは重く副作用もあるので厳しくする。
+  mcp_read_user: { limit: 600, periodSec: 3600 },
+  mcp_write_user: { limit: 120, periodSec: 3600 },
 } as const;
 
 export type ThrottleScope = keyof typeof THROTTLE_RATES;

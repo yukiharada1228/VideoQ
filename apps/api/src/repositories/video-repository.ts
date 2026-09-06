@@ -9,6 +9,12 @@ import {
   sql,
   type SQL,
 } from "drizzle-orm";
+import {
+  videoSourceTypeSchema,
+  videoStatusSchema,
+  type VideoSourceType,
+  type VideoStatus,
+} from "@videoq/trpc";
 import { withDb } from "../db/pool";
 import { sqlNumberArray } from "../db/sql-array";
 import {
@@ -17,6 +23,8 @@ import {
   plogEdges,
   plogSummaryNodes,
   sceneEmbeddings,
+  mcpIdempotencyRecords,
+  users,
   videos,
   videoCourseMembers,
   videoTags,
@@ -32,6 +40,11 @@ import {
 } from "../lib/job-message";
 import { parseReservedBytesFromFileKey } from "../lib/upload";
 import { reserveStorageInTransaction } from "./quota-repository";
+import {
+  findIdempotentResource,
+  recordIdempotentResource,
+  type CreationIdempotency,
+} from "./mcp-idempotency-repository";
 import { toUtcIso } from "../shared/datetime";
 import { resolveFileUrl } from "../integrations/media";
 import type { Bindings } from "../types/bindings";
@@ -42,13 +55,21 @@ export type VideoListItem = {
   title: string;
   description: string;
   uploaded_at: string;
-  status: string;
-  source_type: string;
+  status: VideoStatus;
+  source_type: VideoSourceType;
   source_url: string | null;
   youtube_video_id: string | null;
   youtube_embed_url: string | null;
   tags: { id: number; name: string; color: string }[];
 };
+
+function videoStatus(value: unknown): VideoStatus {
+  return videoStatusSchema.parse(value);
+}
+
+function videoSourceType(value: unknown): VideoSourceType {
+  return videoSourceTypeSchema.parse(value);
+}
 
 // VideoSerializer（詳細）: 一覧 + user / transcript / error_message
 export type VideoDetail = VideoListItem & {
@@ -64,7 +85,8 @@ export type OutboxedVideoJob = {
 };
 
 export type PendingVideoReservation =
-  | { ok: true; videoId: number }
+  | { ok: true; videoId: number; fileKey: string; reused: boolean }
+  | { idempotencyConflict: true }
   | { overQuota: true }
   | { exceeded: true; limit: number };
 
@@ -142,16 +164,20 @@ export const TAGS_SUBQUERY = `COALESCE((
 export async function mapVideoListRow(
   env: Bindings,
   r: Record<string, unknown>,
+  options: { includeFileUrl?: boolean } = {},
 ): Promise<VideoListItem> {
   const youtubeId = (r.youtube_video_id as string) || null;
   return {
     id: Number(r.id),
-    file: await resolveFileUrl(env, (r.file as string) || null),
+    file:
+      options.includeFileUrl === false
+        ? null
+        : await resolveFileUrl(env, (r.file as string) || null),
     title: r.title as string,
     description: r.description as string,
     uploaded_at: toUtcIso(r.uploaded_at as string)!,
-    status: r.status as string,
-    source_type: r.source_type as string,
+    status: videoStatus(r.status),
+    source_type: videoSourceType(r.source_type),
     source_url: (r.source_url as string) || null,
     youtube_video_id: youtubeId,
     youtube_embed_url: youtubeId
@@ -166,6 +192,7 @@ export async function getVideoDetail(
   env: Bindings,
   videoId: number,
   userId: string,
+  options: { includeFileUrl?: boolean } = {},
 ): Promise<VideoDetail | null> {
   const row = await withDb(env, async (db) => {
     const rows = await db
@@ -195,13 +222,16 @@ export async function getVideoDetail(
   return {
     id: Number(row.id),
     user: String(row.user_id),
-    file: await resolveFileUrl(env, row.file || null),
+    file:
+      options.includeFileUrl === false
+        ? null
+        : await resolveFileUrl(env, row.file || null),
     title: row.title,
     description: row.description,
     uploaded_at: toUtcIso(row.uploaded_at)!,
     transcript: row.transcript || null,
-    status: row.status,
-    source_type: row.source_type,
+    status: videoStatus(row.status),
+    source_type: videoSourceType(row.source_type),
     source_url: row.source_url || null,
     youtube_video_id: youtubeId,
     youtube_embed_url: youtubeId
@@ -290,9 +320,27 @@ export async function createYoutubeVideo(
   env: Bindings,
   userId: string,
   params: { sourceUrl: string; youtubeVideoId: string; title: string; description: string },
-): Promise<OutboxedVideoJob> {
+  idempotency?: CreationIdempotency,
+): Promise<
+  | (Omit<OutboxedVideoJob, "taskId"> & {
+      taskId: number | null;
+      reused: boolean;
+    })
+  | { idempotencyConflict: true }
+> {
   return withDb(env, async (db) =>
     db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT 1 FROM users WHERE id = ${userId} FOR UPDATE`);
+      const existing = await findIdempotentResource(tx, userId, idempotency);
+      if (existing.found) {
+        if (existing.conflict) return { idempotencyConflict: true } as const;
+        return {
+          videoId: existing.resourceId,
+          taskId: null,
+          jobId: "",
+          reused: true,
+        } as const;
+      }
       const rows = await tx
         .insert(videos)
         .values({
@@ -312,7 +360,13 @@ export async function createYoutubeVideo(
       const videoId = Number(rows[0].id);
       const message = buildJobMessage(JOB_TRANSCRIBE_VIDEO, { video_id: videoId });
       const task = await insertJobTask(tx, { message });
-      return { videoId, taskId: task.id, jobId: message.job_id };
+      await recordIdempotentResource(tx, userId, idempotency, videoId);
+      return {
+        videoId,
+        taskId: task.id,
+        jobId: message.job_id,
+        reused: false,
+      };
     }),
   );
 }
@@ -429,9 +483,28 @@ export async function reserveAndCreatePendingVideo(
   fileKey: string,
   title: string,
   description: string,
+  idempotency?: CreationIdempotency,
 ): Promise<PendingVideoReservation> {
   return withDb(env, async (db) =>
     db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT 1 FROM users WHERE id = ${userId} FOR UPDATE`);
+      const existing = await findIdempotentResource(tx, userId, idempotency);
+      if (existing.found) {
+        if (existing.conflict) return { idempotencyConflict: true } as const;
+        const rows = await tx
+          .select({ id: videos.id, file: videos.file })
+          .from(videos)
+          .where(and(eq(videos.id, existing.resourceId), eq(videos.userId, userId)))
+          .limit(1);
+        const video = rows[0];
+        if (!video) return { idempotencyConflict: true } as const;
+        return {
+          ok: true as const,
+          videoId: Number(video.id),
+          fileKey: video.file,
+          reused: true,
+        };
+      }
       const reservation = await reserveStorageInTransaction(
         tx,
         userId,
@@ -454,7 +527,14 @@ export async function reserveAndCreatePendingVideo(
           uploadedAt: sql`CURRENT_TIMESTAMP`,
         })
         .returning({ id: videos.id });
-      return { ok: true as const, videoId: Number(rows[0].id) };
+      const videoId = Number(rows[0].id);
+      await recordIdempotentResource(tx, userId, idempotency, videoId);
+      return {
+        ok: true as const,
+        videoId,
+        fileKey,
+        reused: false,
+      };
     }),
   );
 }
@@ -528,6 +608,19 @@ export async function deleteVideoCascade(
             bytes: cleanupBytes,
           })
         : null;
+
+      await tx
+        .delete(mcpIdempotencyRecords)
+        .where(
+          and(
+            eq(mcpIdempotencyRecords.userId, userId),
+            eq(mcpIdempotencyRecords.resourceId, videoId),
+            inArray(mcpIdempotencyRecords.action, [
+              "request_video_upload",
+              "create_youtube_video",
+            ]),
+          ),
+        );
 
       await tx.execute(sql`
         DELETE FROM learner_concept_states
@@ -616,6 +709,7 @@ export async function listVideosPage(
   criteria: VideoListCriteria,
   limit: number,
   offset: number,
+  options: { includeFileUrls?: boolean } = {},
 ): Promise<{ count: number; results: VideoListItem[] }> {
   const where = buildFilterConditions(userId, criteria);
   const orderBy = ORDER_MAP[criteria.sortKey] ?? desc(videos.uploadedAt);
@@ -649,7 +743,11 @@ export async function listVideosPage(
   });
 
   const results: VideoListItem[] = await Promise.all(
-    rows.map((r) => mapVideoListRow(env, r)),
+    rows.map((r) =>
+      mapVideoListRow(env, r, {
+        includeFileUrl: options.includeFileUrls !== false,
+      }),
+    ),
   );
 
   return { count, results };

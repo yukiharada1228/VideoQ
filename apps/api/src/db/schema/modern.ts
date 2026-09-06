@@ -17,6 +17,7 @@ import {
 	vector,
 	json,
 	doublePrecision,
+	primaryKey,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -211,6 +212,46 @@ export const jobExecutions = pgTable(
 			sql`status IN ('running', 'failed', 'completed')`,
 		),
 		check("job_executions_attempts_check", sql`attempts >= 0`),
+	],
+);
+
+/**
+ * MCP の作成系ツールを at-most-once にする台帳。
+ *
+ * resourceId は action ごとに videos / video_courses の id を指す。対象作成と
+ * 同じ transaction で記録し、同じ user/action/key の再試行では既存 id を返す。
+ */
+export const mcpIdempotencyRecords = pgTable(
+	"mcp_idempotency_records",
+	{
+		userId: text("user_id").notNull(),
+		action: varchar({ length: 64 }).notNull(),
+		key: varchar({ length: 128 }).notNull(),
+		requestHash: varchar("request_hash", { length: 64 }).notNull(),
+		resourceId: bigint("resource_id", { mode: "number" }).notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+			.notNull()
+			.defaultNow(),
+	},
+	(table) => [
+		primaryKey({
+			name: "mcp_idempotency_records_pkey",
+			columns: [table.userId, table.action, table.key],
+		}),
+		index("mcp_idempotency_records_created_at_idx").on(table.createdAt),
+		foreignKey({
+			columns: [table.userId],
+			foreignColumns: [users.id],
+			name: "mcp_idempotency_records_user_id_fkey",
+		}).onDelete("cascade"),
+		check(
+			"mcp_idempotency_records_action_check",
+			sql`action IN ('request_video_upload', 'create_youtube_video', 'create_course')`,
+		),
+		check(
+			"mcp_idempotency_records_request_hash_check",
+			sql`request_hash ~ '^[0-9a-f]{64}$'`,
+		),
 	],
 );
 

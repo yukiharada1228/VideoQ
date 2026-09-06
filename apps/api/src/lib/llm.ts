@@ -6,6 +6,7 @@ import {
   throwForResponse,
 } from "./openai";
 import type { Bindings } from "../types/bindings";
+import { deadlineSignal } from "./request-timeout";
 
 /**
  * QA RAG の LLM 呼び出し。temperature=0.0、max_tokens=1024 を使う。
@@ -13,6 +14,8 @@ import type { Bindings } from "../types/bindings";
  * 会話履歴は渡さない（`ChatPromptTemplate.from_messages([system, human])`）。
  */
 const MAX_TOKENS = 1024;
+const LLM_REQUEST_TIMEOUT_MS = 2 * 60_000;
+const LLM_STREAM_TIMEOUT_MS = 5 * 60_000;
 /** GradeReply 用の max_tokens=256 設定。 */
 export const GRADING_MAX_TOKENS = 256;
 
@@ -48,7 +51,10 @@ async function postChatCompletions(
       authorization: `Bearer ${apiKey}`,
     },
     body: requestBody(env, messages, stream, maxTokens),
-    signal,
+    signal: deadlineSignal(
+      stream ? LLM_STREAM_TIMEOUT_MS : LLM_REQUEST_TIMEOUT_MS,
+      signal,
+    ),
   });
   if (!res.ok) await throwForResponse(res);
   return res;

@@ -1,5 +1,6 @@
 import { alias } from "drizzle-orm/pg-core";
 import { and, asc, count, eq, sql } from "drizzle-orm";
+import { TAG_COLORS as TRPC_TAG_COLORS } from "@videoq/trpc";
 import { withDb } from "../db/pool";
 import { tags, videos, videoTags } from "../db/schema";
 import { toUtcIso } from "../shared/datetime";
@@ -11,19 +12,7 @@ import {
 import type { Bindings } from "../types/bindings";
 
 // TagPolicy.ALLOWED_COLORS（ChipLabel palette）。hex は不可。
-export const TAG_COLORS = [
-  "gray",
-  "blue",
-  "light-blue",
-  "cyan",
-  "green",
-  "lime",
-  "yellow",
-  "orange",
-  "red",
-  "magenta",
-  "purple",
-] as const;
+export const TAG_COLORS = TRPC_TAG_COLORS;
 
 export const INVALID_COLOR_MESSAGE = `Invalid color. Use a ChipLabel palette name (${TAG_COLORS.join(", ")})`;
 export const EMPTY_NAME_MESSAGE = "Tag name cannot be empty";

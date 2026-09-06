@@ -120,6 +120,34 @@
       "when": 1787568000000,
       "tag": "0016_rename_groups_to_courses",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788663581614,
+      "tag": "0017_invalidate_legacy_oauth_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788663607280,
+      "tag": "0018_better_auth_1_7_and_mcp_idempotency",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788663619424,
+      "tag": "0019_backfill_better_auth_issuer",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788663635789,
+      "tag": "0020_finalize_better_auth_issuer",
+      "breakpoints": true
     }
   ]
 }

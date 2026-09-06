@@ -1,0 +1,87 @@
+import { useEffect, useCallback, useRef } from 'react';
+import { useI18nNavigate, useI18nLocation, removeLocalePrefix } from '@/lib/i18n';
+import type { User } from '@/lib/api';
+import { useAuthSession } from '@/lib/authSession';
+import { isPublicAuthPath } from '@/lib/authConfig';
+import { trpc } from '@/lib/trpc';
+
+interface UseAuthReturn {
+  user: User | null;
+  isLoading: boolean;
+  refetch: () => Promise<User | null>;
+}
+
+interface UseAuthOptions {
+  redirectToLogin?: boolean;
+  onAuthError?: () => void;
+}
+
+export function useAuth(options: UseAuthOptions = {}): UseAuthReturn {
+  const { redirectToLogin = true, onAuthError } = options;
+  const navigate = useI18nNavigate();
+  const location = useI18nLocation();
+  const pathname = location.pathname;
+  const session = useAuthSession();
+
+  const onAuthErrorRef = useRef(onAuthError);
+  useEffect(() => {
+    onAuthErrorRef.current = onAuthError;
+  }, [onAuthError]);
+
+  const authRequired = !isPublicAuthPath(pathname);
+  const hasSession = Boolean(session.data?.user);
+
+  const authQuery = trpc.account.me.useQuery(undefined, {
+    enabled: authRequired && !session.isPending && hasSession,
+    retry: false,
+    staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    if (!authRequired || session.isPending) return;
+
+    // A transient API/server failure is not proof that the session is invalid.
+    // Keep the user on the current page and allow recovery through `refetch`.
+    if (authQuery.error) {
+      console.error('Authentication check failed:', authQuery.error);
+      return;
+    }
+
+    const unauthorized =
+      !hasSession ||
+      (!authQuery.isPending && authQuery.data === null);
+    if (!unauthorized) return;
+    // Wait for account.me only when a BA session exists.
+    if (hasSession && authQuery.isPending) return;
+
+    if (redirectToLogin) {
+      const currentPath = removeLocalePrefix(window.location.pathname);
+      if (currentPath !== '/login') navigate('/login');
+    }
+    onAuthErrorRef.current?.();
+  }, [
+    authQuery.data,
+    authQuery.error,
+    authQuery.isPending,
+    authRequired,
+    hasSession,
+    redirectToLogin,
+    session.isPending,
+    navigate,
+  ]);
+
+  const checkAuth = useCallback(async () => {
+    if (!authRequired) return null;
+    await session.refetch();
+    const result = await authQuery.refetch();
+    return result.data ?? null;
+  }, [authQuery, authRequired, session]);
+
+  return {
+    user: authRequired && hasSession ? authQuery.data ?? null : null,
+    isLoading: authRequired
+      ? session.isPending || (hasSession && authQuery.isPending)
+      : false,
+    refetch: checkAuth,
+  };
+}

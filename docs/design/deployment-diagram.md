@@ -27,6 +27,8 @@ flowchart TB
     Client --> API[Cloudflare Worker]
     API --> HD[Hyperdrive] --> Neon[(Neon)]
     API --> R2[(R2)]
+    API --> DO[Durable Objects]
+    API --> Mailgun[Mailgun]
     API --> SQS[SQS]
     SQS --> Lambda[Python worker Lambda]
     Lambda --> Neon
@@ -41,7 +43,8 @@ flowchart TB
 | API | `cd apps/api && npm run deploy` |
 | DB | `DATABASE_URL=... npm run db:migrate` |
 | worker | container image を ECR へ push し Lambda image を更新 |
-| Cloudflare binding | Wrangler / Cloudflare dashboard |
+| Cloudflare binding | Wrangler (`wrangler.jsonc`) |
+| Hyperdrive cache / R2 CORS | 手動承認付き `cloudflare-resources.yml` |
 | AWS worker infrastructure | Terraform |
 
 詳細は [`infra/DEPLOY.md`](../../infra/DEPLOY.md) を参照してください。

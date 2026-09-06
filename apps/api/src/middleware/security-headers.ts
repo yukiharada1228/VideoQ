@@ -4,10 +4,8 @@ import type { AppEnv } from "../types/bindings";
 /**
  * API レスポンス共通のセキュリティヘッダー。
  *
- * API は JSON だけでなく Scalar の API リファレンス（HTML）も返すため、
- * クリックジャッキングと MIME スニッフィングの両方を塞ぐ。
- * script-src 等のリソース系 CSP は Scalar のバンドル読み込みを壊すので
- * ここでは指定しない。frame-ancestors は自前リソースに影響しない。
+ * JSON、SSE、binary response に共通する防御を適用する。
+ * API 自体は HTML を返さないため frame 埋め込みを禁止する。
  */
 export const securityHeaders = createMiddleware<AppEnv>(async (c, next) => {
   await next();

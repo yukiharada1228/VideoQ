@@ -4,6 +4,7 @@ import { sqlNumberArray } from "../db/sql-array";
 import {
   chatLogs,
   chatLogEvaluations,
+  mcpIdempotencyRecords,
   videos,
   videoCourses,
   videoCourseMembers,
@@ -12,6 +13,11 @@ import {
 import { toUtcIso } from "../shared/datetime";
 import { mapVideoListRow, type VideoListItem } from "./video-repository";
 import type { Bindings } from "../types/bindings";
+import {
+  findIdempotentResource,
+  recordIdempotentResource,
+  type CreationIdempotency,
+} from "./mcp-idempotency-repository";
 
 /** VideoCourse 一覧 API のレスポンス表現。 */
 export type CourseListItem = {
@@ -62,6 +68,11 @@ async function fetchCourseDetail(
   env: Bindings,
   where: SQL,
   accessRole: "public" | { viewerUserId: string },
+  options: {
+    includeFileUrls?: boolean;
+    videoLimit?: number;
+    videoOffset?: number;
+  } = {},
 ): Promise<CourseDetail | null> {
   const data = await withDb(env, async (db) => {
     const courseRows = await db
@@ -82,7 +93,7 @@ async function fetchCourseDetail(
     if (courseRows.length === 0) return null;
     const courseId = Number(courseRows[0].id);
 
-    const memberRows = await db
+    let memberQuery = db
       .select({
         member_order: videoCourseMembers.order,
         id: videos.id,
@@ -99,7 +110,15 @@ async function fetchCourseDetail(
       .from(videoCourseMembers)
       .innerJoin(videos, eq(videos.id, videoCourseMembers.videoId))
       .where(eq(videoCourseMembers.courseId, courseId))
-      .orderBy(asc(videoCourseMembers.order), asc(videoCourseMembers.addedAt));
+      .orderBy(asc(videoCourseMembers.order), asc(videoCourseMembers.addedAt))
+      .$dynamic();
+    if (options.videoLimit !== undefined) {
+      memberQuery = memberQuery.limit(options.videoLimit);
+    }
+    if (options.videoOffset !== undefined) {
+      memberQuery = memberQuery.offset(options.videoOffset);
+    }
+    const memberRows = await memberQuery;
 
     return { course: courseRows[0], members: memberRows };
   });
@@ -108,7 +127,9 @@ async function fetchCourseDetail(
 
   const nestedVideos = await Promise.all(
     data.members.map(async (r) => ({
-      ...(await mapVideoListRow(env, r)),
+      ...(await mapVideoListRow(env, r, {
+        includeFileUrl: options.includeFileUrls !== false,
+      })),
       order: r.member_order,
     })),
   );
@@ -141,6 +162,11 @@ export function getCourseDetail(
   env: Bindings,
   courseId: number,
   userId: string,
+  options: {
+    includeFileUrls?: boolean;
+    videoLimit?: number;
+    videoOffset?: number;
+  } = {},
 ): Promise<CourseDetail | null> {
   return fetchCourseDetail(
     env,
@@ -156,6 +182,7 @@ export function getCourseDetail(
       ),
     )!,
     { viewerUserId: userId },
+    options,
   );
 }
 
@@ -176,10 +203,23 @@ export async function createCourse(
   userId: string,
   name: string,
   description: string,
-): Promise<number> {
+  idempotency?: CreationIdempotency,
+): Promise<
+  | { ok: true; courseId: number; reused: boolean }
+  | { idempotencyConflict: true }
+> {
   return withDb(env, async (db) =>
     db.transaction(async (tx) => {
       await tx.execute(sql`SELECT 1 FROM users WHERE id = ${userId} FOR UPDATE`);
+      const existing = await findIdempotentResource(tx, userId, idempotency);
+      if (existing.found) {
+        if (existing.conflict) return { idempotencyConflict: true } as const;
+        return {
+          ok: true as const,
+          courseId: existing.resourceId,
+          reused: true,
+        };
+      }
       const rows = await tx
         .insert(videoCourses)
         .values({
@@ -192,7 +232,9 @@ export async function createCourse(
           shareSlug: null,
         })
         .returning({ id: videoCourses.id });
-      return Number(rows[0].id);
+      const courseId = Number(rows[0].id);
+      await recordIdempotentResource(tx, userId, idempotency, courseId);
+      return { ok: true as const, courseId, reused: false };
     }),
   );
 }
@@ -244,6 +286,15 @@ export async function deleteCourse(
         DELETE FROM chat_log_evaluations
          WHERE chat_log_id IN (SELECT id FROM chat_logs WHERE course_id = ${courseId})
       `);
+      await tx
+        .delete(mcpIdempotencyRecords)
+        .where(
+          and(
+            eq(mcpIdempotencyRecords.userId, userId),
+            eq(mcpIdempotencyRecords.action, "create_course"),
+            eq(mcpIdempotencyRecords.resourceId, courseId),
+          ),
+        );
       await tx.delete(chatLogs).where(eq(chatLogs.courseId, courseId));
       await tx.delete(videoCourseMembers).where(eq(videoCourseMembers.courseId, courseId));
       await tx

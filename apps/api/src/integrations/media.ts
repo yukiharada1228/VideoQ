@@ -1,5 +1,8 @@
 import { AwsClient } from "aws4fetch";
 import type { Bindings } from "../types/bindings";
+import { deadlineSignal } from "../lib/request-timeout";
+
+const S3_OPERATION_TIMEOUT_MS = 10_000;
 
 /**
  * メディア共通基盤。
@@ -163,11 +166,20 @@ export async function getR2ObjectSize(
   env: Bindings,
   fileKey: string,
 ): Promise<number | null> {
+  // Production Workers can reach R2 directly through the binding. Keep the
+  // signed HTTP path only for local MinIO, where the binding is not the source
+  // of truth used by presigned browser uploads.
+  if (env.ENVIRONMENT === "production") {
+    const obj = await env.VIDEO_BUCKET.head(r2ObjectKey(fileKey));
+    return obj ? obj.size : null;
+  }
   if (isS3Storage(env)) {
     const { aws, endpoint, bucket } = s3Client(env, { public: false });
     const url = objectUrl(endpoint, bucket, fileKey);
     const signed = await aws.sign(new Request(url, { method: "HEAD" }));
-    const res = await fetch(signed);
+    const res = await fetch(signed, {
+      signal: deadlineSignal(S3_OPERATION_TIMEOUT_MS),
+    });
     if (res.status === 404) return null;
     if (!res.ok) {
       throw new Error(`S3 HeadObject failed: ${res.status}`);
@@ -181,11 +193,17 @@ export async function getR2ObjectSize(
 
 /** オブジェクト削除。USE_S3 時は S3 DeleteObject。 */
 export async function deleteR2Object(env: Bindings, fileKey: string): Promise<void> {
+  if (env.ENVIRONMENT === "production") {
+    await env.VIDEO_BUCKET.delete(r2ObjectKey(fileKey));
+    return;
+  }
   if (isS3Storage(env)) {
     const { aws, endpoint, bucket } = s3Client(env, { public: false });
     const url = objectUrl(endpoint, bucket, fileKey);
     const signed = await aws.sign(new Request(url, { method: "DELETE" }));
-    const res = await fetch(signed);
+    const res = await fetch(signed, {
+      signal: deadlineSignal(S3_OPERATION_TIMEOUT_MS),
+    });
     if (!res.ok && res.status !== 404) {
       throw new Error(`S3 DeleteObject failed: ${res.status}`);
     }

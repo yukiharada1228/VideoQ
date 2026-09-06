@@ -7,12 +7,19 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+WORKDIR /workspace
 
 COPY package.json package-lock.json ./
-RUN npm ci
+COPY apps/api/package.json apps/api/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY packages/trpc/package.json packages/trpc/package.json
+RUN npm ci \
+  && cp package-lock.json node_modules/.videoq-package-lock
 
-COPY . .
+COPY apps/api apps/api
+COPY packages/trpc packages/trpc
+
+WORKDIR /workspace/apps/api
 RUN chmod +x scripts/docker-dev.sh
 
 EXPOSE 8787

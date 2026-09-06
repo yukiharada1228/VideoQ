@@ -14,6 +14,7 @@ import {
   SLUG_ALREADY_EXISTS_MESSAGE,
 } from "../../lib/share-slug";
 import type { Bindings } from "../../types/bindings";
+import type { CreationIdempotency } from "../../repositories/mcp-idempotency-repository";
 
 export async function listCourses(
   env: Bindings,
@@ -38,8 +39,33 @@ export async function createUserCourse(
   name: string,
   description: string,
 ) {
-  const id = await createCourse(env, userId, name, description);
-  return getCourseDetail(env, id, userId);
+  const created = await createCourse(env, userId, name, description);
+  if ("idempotencyConflict" in created) {
+    throw new Error("Unexpected idempotency conflict without an idempotency key.");
+  }
+  return getCourseDetail(env, created.courseId, userId);
+}
+
+/** MCP 用: 同じ key + payload の再試行では同じ講座を返す。 */
+export async function createUserCourseIdempotent(
+  env: Bindings,
+  userId: string,
+  name: string,
+  description: string,
+  idempotency: CreationIdempotency,
+) {
+  const created = await createCourse(
+    env,
+    userId,
+    name,
+    description,
+    idempotency,
+  );
+  if ("idempotencyConflict" in created) return created;
+  return {
+    course: await getCourseDetail(env, created.courseId, userId),
+    reused: created.reused,
+  } as const;
 }
 
 export async function updateUserCourse(

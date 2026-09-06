@@ -1,0 +1,19 @@
+{
+  "rules": [
+    {
+      "id": "videoq-browser-media",
+      "allowed": {
+        "origins": ["https://videoq.jp"],
+        "methods": ["GET", "HEAD", "PUT"],
+        "headers": ["Content-Type", "Range"]
+      },
+      "exposeHeaders": [
+        "Accept-Ranges",
+        "Content-Length",
+        "Content-Range",
+        "ETag"
+      ],
+      "maxAgeSeconds": 3600
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { billingRoutes } from "../src/features/billing/routes";
+import { createApp } from "../src/app";
 
 const constructEventAsync = vi.fn();
 const checkoutCreate = vi.fn();
@@ -73,17 +74,31 @@ beforeEach(() => {
   rowsFor = () => [];
 });
 
-const req = (path: string, init: RequestInit = {}) =>
-  billingRoutes.request(path, init, ENV);
+const req = (path: string, init: RequestInit = {}) => {
+  if (path === "/plans") {
+    return createApp().request("/api/trpc/billing.plans", init, ENV as never);
+  }
+  if (path === "/checkout") {
+    const body = JSON.parse(String(init.body ?? "{}")) as { lookup_key?: string };
+    return createApp().request(
+      "/api/trpc/billing.checkout",
+      { ...init, body: JSON.stringify({ lookupKey: body.lookup_key }) },
+      ENV as never,
+    );
+  }
+  return billingRoutes.request(path, init, ENV);
+};
 
 describe("billing API", () => {
   it("GET /plans はカタログを返す", async () => {
     const res = await req("/plans");
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: { code: string; amount_yen: number }[] };
-    expect(body.data.some((p) => p.code === "free" && p.amount_yen === 0)).toBe(true);
-    expect(body.data.some((p) => p.code === "basic" && p.amount_yen === 1480)).toBe(true);
-    expect(body.data.some((p) => p.code === "pro" && p.amount_yen === 3980)).toBe(true);
+    const body = (await res.json()) as {
+      result: { data: { code: string; amount_yen: number }[] };
+    };
+    expect(body.result.data.some((p) => p.code === "free" && p.amount_yen === 0)).toBe(true);
+    expect(body.result.data.some((p) => p.code === "basic" && p.amount_yen === 1480)).toBe(true);
+    expect(body.result.data.some((p) => p.code === "pro" && p.amount_yen === 3980)).toBe(true);
   });
 
   it("未ログインの checkout は 401", async () => {

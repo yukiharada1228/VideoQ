@@ -12,3 +12,8 @@ output "worker_ecr_uri" {
   description = "Worker Lambda ECR URI"
   value       = aws_ecr_repository.worker.repository_url
 }
+
+output "operations_alert_topic_arn" {
+  description = "Lambda/SQS operational alarm notification topic"
+  value       = aws_sns_topic.operations.arn
+}

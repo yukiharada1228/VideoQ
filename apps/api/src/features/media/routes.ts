@@ -1,7 +1,7 @@
 import type { Context } from "hono";
+import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
-import { apiKeyMethod, sessionMethod } from "../../middleware/auth";
-import { createFeatureRouter } from "../../shared/openapi";
+import { sessionMethod } from "../../middleware/auth";
 import { toErrorBody } from "../../shared/errors";
 import {
   clientIp,
@@ -15,19 +15,17 @@ import * as mediaService from "./service";
  * Protected media streaming (`GET /api/media/*`).
  * Wildcard のため classic 登録。認可・Range 応答は service。
  */
-export const mediaRoutes = createFeatureRouter();
+export const mediaRoutes = new Hono<AppEnv>();
 
 const mediaAuth = createMiddleware<AppEnv>(async (c, next) => {
-  for (const method of [apiKeyMethod, sessionMethod]) {
-    const r = await method(c);
-    if (r.kind === "ok") {
-      c.set("userId", r.userId);
-      c.set("authVia", r.via);
-      if (r.accessLevel) c.set("apiKeyAccessLevel", r.accessLevel);
-      return next();
-    }
-    if (r.kind === "invalid")
-      return c.json(toErrorBody("UNAUTHORIZED", r.message), 401);
+  const result = await sessionMethod(c);
+  if (result.kind === "ok") {
+    c.set("userId", result.userId);
+    c.set("authVia", result.via);
+    return next();
+  }
+  if (result.kind === "invalid") {
+    return c.json(toErrorBody("UNAUTHORIZED", result.message), 401);
   }
   const shareSlug = c.req.query("share_slug") || c.req.query("share_token");
   if (shareSlug) {

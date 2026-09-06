@@ -89,7 +89,9 @@ describe("LLM 呼び出し（ChatOpenAI 相当）", () => {
 
     const controller = new AbortController();
     for await (const _ of streamReply(ENV, "S", "Q", controller.signal)) void _;
-    expect(seen).toBe(controller.signal);
+    expect(seen).toBeDefined();
+    controller.abort();
+    expect(seen?.aborted).toBe(true);
   });
 
   it("401 は設定エラー、その他はプロバイダエラー", async () => {

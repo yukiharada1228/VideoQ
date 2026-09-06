@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const userRow = vi.hoisted(() => ({ value: [] as unknown[] }));
 const verifyApiKey = vi.hoisted(() => vi.fn());
+const getSession = vi.hoisted(() => vi.fn());
 
 // users テーブルの参照だけを差し替えた最小の Drizzle スタブ。
 const fakeDb = {
@@ -15,13 +16,17 @@ vi.mock("../src/db/pool", () => ({
   withClient: vi.fn(),
 }));
 vi.mock("../src/lib/auth", () => ({
-  createAuth: () => ({ api: { verifyApiKey } }),
+  createAuth: () => ({ api: { getSession, verifyApiKey } }),
   authBaseURL: () => "http://localhost",
   oauthResourceAudience: () => "http://localhost/api/mcp",
 }));
 
 import { Hono } from "hono";
-import { apiKeyMethod, requireAuth } from "../src/middleware/auth";
+import {
+  apiKeyMethod,
+  requireAuth,
+  sessionMethod,
+} from "../src/middleware/auth";
 import type { AppEnv } from "../src/types/bindings";
 import { TEST_USER_ID } from "./helpers/auth";
 
@@ -31,6 +36,9 @@ const ENV = { ENVIRONMENT: "production" } as unknown as AppEnv["Bindings"];
 function app() {
   const a = new Hono<AppEnv>();
   a.get("/who", requireAuth(apiKeyMethod), (c) => c.json({ userId: c.var.userId }));
+  a.get("/session", requireAuth(sessionMethod), (c) =>
+    c.json({ userId: c.var.userId, authVia: c.var.authVia }),
+  );
   return a;
 }
 
@@ -47,6 +55,41 @@ beforeEach(() => {
   verifyApiKey.mockResolvedValue({
     valid: true,
     key: { referenceId: TEST_USER_ID, metadata: { accessLevel: "all" } },
+  });
+  getSession.mockResolvedValue(null);
+});
+
+describe("Better Auth session と停止アカウント", () => {
+  const sessionRequest = () => app().request("https://videoq.jp/session", {}, ENV);
+
+  it("Cookieキャッシュを使わず、失効状態をDBから確認する", async () => {
+    getSession.mockResolvedValue({
+      user: { id: TEST_USER_ID, banned: false, isActive: true },
+    });
+
+    const res = await sessionRequest();
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ userId: TEST_USER_ID, authVia: "session" });
+    expect(getSession).toHaveBeenCalledWith(expect.objectContaining({
+      query: { disableCookieCache: true },
+    }));
+  });
+
+  it("キャッシュ済みセッションでもbannedユーザーを拒否する", async () => {
+    getSession.mockResolvedValue({
+      user: { id: TEST_USER_ID, banned: true, isActive: true },
+    });
+
+    expect((await sessionRequest()).status).toBe(401);
+  });
+
+  it("キャッシュ済みセッションでもis_active=falseを拒否する", async () => {
+    getSession.mockResolvedValue({
+      user: { id: TEST_USER_ID, banned: false, isActive: false },
+    });
+
+    expect((await sessionRequest()).status).toBe(401);
   });
 });
 

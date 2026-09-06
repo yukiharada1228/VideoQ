@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: terraform-apply
@@ -36,8 +37,8 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_DEPLOY_ROLE_ARN }}
+          role-session-name: videoq-terraform-apply
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Setup Terraform
@@ -50,10 +51,8 @@ jobs:
 
       - name: Terraform apply
         env:
-          TF_VAR_pages_domain: ${{ secrets.PAGES_DOMAIN }}
-          TF_VAR_custom_domain: ${{ secrets.CUSTOM_DOMAIN }}
-          TF_VAR_certificate_arn: ${{ secrets.CERTIFICATE_ARN }}
           # Used to manage OpenAI projects with the openai/openai provider.
           OPENAI_ADMIN_KEY: ${{ secrets.OPENAI_ADMIN_KEY }}
           TF_VAR_openai_spend_alert_email: ${{ secrets.OPENAI_SPEND_ALERT_EMAIL }}
+          TF_VAR_operations_alert_email: ${{ secrets.OPERATIONS_ALERT_EMAIL }}
         run: terraform apply -auto-approve -input=false

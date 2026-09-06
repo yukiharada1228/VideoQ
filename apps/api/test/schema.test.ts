@@ -1,86 +1,24 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 
-const ENV = {
-  ENVIRONMENT: "test",
-  CORS_ALLOW_ORIGIN: "http://localhost:5173",
-} as unknown as Parameters<ReturnType<typeof createApp>["request"]>[2];
+const ENV = { ENVIRONMENT: "test" } as CloudflareBindings;
 
-describe("OpenAPI / docs", () => {
-  it("GET /api/openapi.json は OpenAPI 3.x", async () => {
-    const app = createApp();
-    const res = await app.request("/api/openapi.json", {}, ENV);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { openapi: string; paths: Record<string, unknown> };
-    expect(body.openapi).toMatch(/^3\./);
-    expect(Object.keys(body.paths).length).toBeGreaterThan(0);
-    // prefix マウント後も公開 path が合成されていること
-    expect(body.paths).toHaveProperty("/api/account/me");
-    expect(body.paths).toHaveProperty("/api/videos");
-    expect(body.paths).toHaveProperty("/api/chat/messages");
-    expect(body.paths).toHaveProperty("/api/v1/chat/completions");
-    expect(body.paths).toHaveProperty("/api/billing/plans");
-    expect(body.paths).toHaveProperty("/api/billing/checkout");
-  });
+describe("removed developer API documentation", () => {
+  const app = createApp();
 
-  it("GET /api/docs は HTML（Scalar）", async () => {
-    const app = createApp();
-    const res = await app.request("/api/docs", {}, ENV);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("text/html");
-    const html = await res.text();
-    expect(html.length).toBeGreaterThan(0);
-  });
-
-  it("認証方式を securitySchemes に公開する", async () => {
-    const app = createApp();
-    const res = await app.request("/api/openapi.json", {}, ENV);
-    const body = (await res.json()) as {
-      components?: { securitySchemes?: Record<string, unknown> };
-    };
-    expect(Object.keys(body.components?.securitySchemes ?? {}).sort()).toEqual([
-      "ApiKeyAuth",
-      "BearerAuth",
-      "OAuth2",
-    ]);
-  });
-
-  it("GET /api/schema はライブ OpenAPI（/api/openapi.json と同系）", async () => {
-    const app = createApp();
-    const [schema, openapi] = await Promise.all([
-      app.request("/api/schema", {}, ENV),
-      app.request("/api/openapi.json", {}, ENV),
-    ]);
-    expect(schema.status).toBe(200);
-    expect(openapi.status).toBe(200);
-    const schemaBody = (await schema.json()) as {
-      openapi: string;
-      paths: Record<string, unknown>;
-    };
-    const openapiBody = (await openapi.json()) as {
-      openapi: string;
-      paths: Record<string, unknown>;
-    };
-    expect(schemaBody.openapi).toMatch(/^3\./);
-    expect(Object.keys(schemaBody.paths).length).toBe(
-      Object.keys(openapiBody.paths).length,
-    );
-  });
-
-  it("GET /api/redoc は HTML", async () => {
-    const app = createApp();
-    const res = await app.request("/api/redoc", {}, ENV);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("text/html");
-    expect(await res.text()).toContain("/api/openapi.json");
-  });
-
-  it("未定義パスは 404（プロキシ無し）", async () => {
-    const app = createApp();
-    const res = await app.request("/api/admin", {}, ENV);
-    expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({
-      error: { code: "NOT_FOUND", message: "Not found" },
+  for (const path of ["/api/schema", "/api/openapi.json", "/api/docs", "/api/redoc"]) {
+    it(`GET ${path} is not exposed`, async () => {
+      const response = await app.request(path, {}, ENV);
+      expect(response.status).toBe(404);
     });
+  }
+
+  it("does not expose the removed OpenAI-compatible endpoint", async () => {
+    const response = await app.request("/api/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ messages: [{ role: "user", content: "hello" }] }),
+    }, ENV);
+    expect(response.status).toBe(404);
   });
 });

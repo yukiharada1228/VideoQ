@@ -7,11 +7,13 @@ const repository = vi.hoisted(() => ({
   pruneDeliveryHistory: vi.fn(),
 }));
 const invitations = vi.hoisted(() => ({ failInvitationsWithoutLiveDelivery: vi.fn() }));
+const mcpIdempotency = vi.hoisted(() => ({ pruneMcpIdempotencyRecords: vi.fn() }));
 
 vi.mock("../src/lib/external-tasks", () => tasks);
 vi.mock("../src/lib/upload-reconcile", () => uploads);
 vi.mock("../src/repositories/external-task-repository", () => repository);
 vi.mock("../src/repositories/course-invitation-repository", () => invitations);
+vi.mock("../src/repositories/mcp-idempotency-repository", () => mcpIdempotency);
 
 import {
   INVITATION_QUEUED_STALE_MS,
@@ -44,6 +46,7 @@ beforeEach(() => {
     jobExecutions: 0,
   });
   invitations.failInvitationsWithoutLiveDelivery.mockResolvedValue({ failed: 0 });
+  mcpIdempotency.pruneMcpIdempotencyRecords.mockResolvedValue({ deleted: 0 });
 });
 
 describe("scheduled maintenance", () => {
@@ -75,6 +78,7 @@ describe("scheduled maintenance", () => {
     await runScheduledMaintenance(env, "17 3 * * *");
 
     expect(repository.pruneDeliveryHistory).toHaveBeenCalledOnce();
+    expect(mcpIdempotency.pruneMcpIdempotencyRecords).toHaveBeenCalledOnce();
     expect(tasks.processExternalTasks).not.toHaveBeenCalled();
     expect(uploads.reconcileAbandonedUploads).not.toHaveBeenCalled();
     expect(invitations.failInvitationsWithoutLiveDelivery).not.toHaveBeenCalled();

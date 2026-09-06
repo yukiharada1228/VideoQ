@@ -20,9 +20,13 @@
   // "development" のまま到達可能になると、テスト用認証ヘッダの経路が開く。
   "workers_dev": false,
   "main": "src/index.ts",
-  "compatibility_date": "2026-08-01",
+  "compatibility_date": "2026-08-20",
   "compatibility_flags": ["nodejs_compat"],
-  "observability": { "enabled": true },
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 1 }
+  },
 
   "vars": {
     "ENVIRONMENT": "development",
@@ -30,7 +34,7 @@
     "CORS_ALLOW_ORIGIN": "http://localhost,http://127.0.0.1,http://127.0.0.1:3000,http://localhost:3000",
     "FRONTEND_URL": "http://localhost",
     "DEFAULT_FROM_EMAIL": "noreply@videoq.local",
-    "GROUP_INVITATION_BATCH_LIMIT": "50",
+    "COURSE_INVITATION_BATCH_LIMIT": "50",
     "MAX_VIDEO_UPLOAD_SIZE_MB": "200",
     "DEFAULT_STORAGE_LIMIT_GB": "1",
     "DEFAULT_PROCESSING_LIMIT_MINUTES": "45",
@@ -45,8 +49,6 @@
     "OAUTH_ISSUER_URL": "http://localhost",
     "BETTER_AUTH_URL": "http://localhost"
   },
-
-  "send_email": [{ "name": "EMAIL" }],
 
   // `wrangler dev` は localConnectionString しか見ない。id に本番の Hyperdrive を
   // 書くと、`--env production` を付け忘れた deploy が本番DBに繋がってしまうため、
@@ -88,6 +90,11 @@
       // 公開経路は下の routes だけ。workers.dev を開けると CORS も
       // Cookie ドメインも効かない第二の入口ができてしまう。
       "workers_dev": false,
+      "observability": {
+        "enabled": true,
+        "logs": { "enabled": true, "head_sampling_rate": 1 },
+        "traces": { "enabled": true, "head_sampling_rate": 0.05 }
+      },
       "vars": {
         "ENVIRONMENT": "production",
         "USE_S3_STORAGE": "true",
@@ -95,7 +102,7 @@
         "FRONTEND_URL": "https://videoq.jp",
         "DEFAULT_FROM_EMAIL": "noreply@mg.videoq.jp",
         "MAILGUN_SENDER_DOMAIN": "mg.videoq.jp",
-        "GROUP_INVITATION_BATCH_LIMIT": "50",
+        "COURSE_INVITATION_BATCH_LIMIT": "50",
         "MAX_VIDEO_UPLOAD_SIZE_MB": "200",
         "DEFAULT_STORAGE_LIMIT_GB": "1",
         "DEFAULT_PROCESSING_LIMIT_MINUTES": "45",
@@ -119,7 +126,6 @@
         { "pattern": "videoq.jp/health", "zone_name": "videoq.jp" },
         { "pattern": "videoq.jp/ready", "zone_name": "videoq.jp" }
       ],
-      "send_email": [{ "name": "EMAIL" }],
       "hyperdrive": [
         {
           "binding": "HYPERDRIVE",

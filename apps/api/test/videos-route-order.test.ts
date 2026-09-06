@@ -1,20 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app";
-import { TEST_USER_ID, signAccessToken, testAuthHeaders } from "./helpers/auth";
+import { TEST_USER_ID, testAuthHeaders } from "./helpers/auth";
+import { requestTrpc, trpcData } from "./helpers/trpc";
 import * as courseService from "../src/features/courses/service";
 import * as videoService from "../src/features/videos/service";
-
-const SECRET = "route-order-secret";
 
 const ENV = {
   ENVIRONMENT: "test",
   CORS_ALLOW_ORIGIN: "http://localhost:5173",
-  AUTH_JWT_SECRET: SECRET,
 } as unknown as Parameters<ReturnType<typeof createApp>["request"]>[2];
-
-vi.mock("../src/repositories/auth-repository", () => ({
-  isAuthSessionActive: vi.fn(async () => true),
-}));
 
 vi.mock("../src/features/courses/service", () => ({
   listCourses: vi.fn(async () => ({ count: 0, results: [] })),
@@ -33,76 +27,64 @@ vi.mock("../src/features/videos/service", () => ({
   })),
 }));
 
-describe("GET /api/videos/courses route order", () => {
+describe("video/course JSON endpoints use tRPC", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("does not treat 'courses' as a video id (NaN validation)", async () => {
-    const app = createApp();
-    const token = await signAccessToken(SECRET);
-    const res = await app.request(
-      "/api/videos/courses",
-      { headers: { "X-VideoQ-Test-User-Id": "00000000-0000-4000-8000-000000000005" } },
+  it.each([
+    ["GET", "/api/videos/courses"],
+    ["PATCH", "/api/videos/courses/order"],
+    ["GET", "/api/videos/stats"],
+  ])("removes the legacy %s %s route", async (method, path) => {
+    const response = await createApp().request(
+      path,
+      { method, headers: testAuthHeaders() },
       ENV,
     );
-    const body = await res.json();
-    expect(res.status).toBe(200);
-    expect(body).not.toMatchObject({
-      error: { message: expect.stringContaining("NaN") },
-    });
-    expect(body).toMatchObject({
-      data: [],
-      meta: { total: 0 },
-    });
-  });
-});
-
-describe("PATCH /api/videos/courses/order route order", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+    expect(response.status).toBe(404);
+    expect(await response.json()).toMatchObject({ error: { code: "NOT_FOUND" } });
   });
 
-  it("does not treat 'order' as a course id (NaN validation)", async () => {
-    const app = createApp();
-    const res = await app.request(
-      "/api/videos/courses/order",
-      {
-        method: "PATCH",
-        headers: {
-          ...testAuthHeaders(),
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ course_ids: [2, 1] }),
-      },
-      ENV,
-    );
-    const body = await res.json();
-    expect(res.status).toBe(200);
-    expect(body).toEqual({ message: "Course order updated" });
-    expect(courseService.reorderUserCourses).toHaveBeenCalledWith(
-      ENV,
-      TEST_USER_ID,
-      [2, 1],
-    );
-  });
-});
-
-describe("GET /api/videos/stats route order", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("does not treat 'stats' as a video id (NaN validation)", async () => {
-    const app = createApp();
-    const res = await app.request(
-      "/api/videos/stats",
+  it("lists courses through courses.list", async () => {
+    const response = await requestTrpc(
+      "courses.list",
+      "query",
+      { limit: 100, cursor: 0 },
       { headers: testAuthHeaders() },
       ENV,
     );
-    const body = await res.json();
-    expect(res.status).toBe(200);
-    expect(body).toEqual({
+    expect(response.status).toBe(200);
+    expect(await trpcData(response)).toEqual({
+      data: [],
+      meta: { total: 0, limit: 100, offset: 0 },
+    });
+    expect(courseService.listCourses).toHaveBeenCalledWith(ENV, TEST_USER_ID, 100, 0);
+  });
+
+  it("reorders courses through courses.reorder", async () => {
+    const response = await requestTrpc(
+      "courses.reorder",
+      "mutation",
+      { courseIds: [2, 1] },
+      { headers: testAuthHeaders() },
+      ENV,
+    );
+    expect(response.status).toBe(200);
+    expect(await trpcData(response)).toEqual({ courseIds: [2, 1] });
+    expect(courseService.reorderUserCourses).toHaveBeenCalledWith(ENV, TEST_USER_ID, [2, 1]);
+  });
+
+  it("loads video status counts through videos.statusCounts", async () => {
+    const response = await requestTrpc(
+      "videos.statusCounts",
+      "query",
+      undefined,
+      { headers: testAuthHeaders() },
+      ENV,
+    );
+    expect(response.status).toBe(200);
+    expect(await trpcData(response)).toEqual({
       total: 24,
       completed: 24,
       pending: 0,

@@ -191,19 +191,16 @@ flowchart TD
 
     SelectAction -->|Create| InputName[Input Key Name]
     InputName --> SelectAccess[Select Access Level<br/>all / read_only]
-    SelectAccess --> ValidateName{"Duplicate Name<br>Check"}
-    ValidateName -->|Duplicate| ErrorDup[Error: Name Already Exists]
-    ErrorDup --> InputName
-    ValidateName -->|OK| GenerateKey[Generate Raw Key + SHA-256 Hash]
-    GenerateKey --> SaveKey[Save UserApiKey to Database]
+    SelectAccess --> GenerateKey[Better Auth<br/>Generate Raw Key]
+    GenerateKey --> SaveKey[Store apikey Hash<br/>+ accessLevel Metadata]
     SaveKey --> ShowRawKey[Display Raw Key<br/>One-time only, cannot be retrieved again]
     ShowRawKey --> End
 
     SelectAction -->|Revoke| SelectKey[Select API Key to Revoke]
     SelectKey --> ConfirmRevoke{"Confirm<br>Revocation?"}
     ConfirmRevoke -->|Cancel| End
-    ConfirmRevoke -->|Confirm| SetRevoked[Set revoked_at = now<br/>Soft Delete]
-    SetRevoked --> End
+    ConfirmRevoke -->|Confirm| DeleteKey[Better Auth<br/>Delete API Key]
+    DeleteKey --> End
 ```
 
 ## 8. チャット分析・フィードバックフロー

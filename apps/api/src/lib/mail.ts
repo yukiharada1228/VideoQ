@@ -1,6 +1,7 @@
 import type { Bindings } from "../types/bindings";
+import { deadlineSignal } from "./request-timeout";
 
-const FROM_FALLBACK = "noreply@videoq.local";
+const MAILGUN_TIMEOUT_MS = 15_000;
 
 async function sendViaMailgun(
   env: Bindings,
@@ -27,6 +28,7 @@ async function sendViaMailgun(
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body,
+    signal: deadlineSignal(MAILGUN_TIMEOUT_MS),
   });
   if (!res.ok) {
     // 本文は宛先や差出人を含みうるうえ、そのまま last_error として永続化される。
@@ -38,7 +40,7 @@ async function sendViaMailgun(
   return true;
 }
 
-/** Transactional email via Mailgun (preferred) or Cloudflare Email Sending. */
+/** Transactional email via Mailgun. */
 export async function sendMail(
   env: Bindings,
   toEmail: string,
@@ -47,11 +49,9 @@ export async function sendMail(
 ): Promise<void> {
   const text = lines.join("\n");
   if (await sendViaMailgun(env, toEmail, subject, text)) return;
-  if (!env.EMAIL) throw new Error("EMAIL binding is not configured");
-  await env.EMAIL.send({
-    to: toEmail,
-    from: { email: env.DEFAULT_FROM_EMAIL ?? FROM_FALLBACK, name: "VideoQ" },
-    subject,
-    text,
-  });
+  throw new Error(
+    env.ENVIRONMENT === "production"
+      ? "MAILGUN_API_KEY is required for production email delivery"
+      : "MAILGUN_API_KEY is required for email delivery",
+  );
 }

@@ -40,6 +40,15 @@ sqs_visibility_timeout_seconds = 960
 # Maximum message receive count before routing to the DLQ.
 sqs_max_receive_count = 3
 
+# --- Operations monitoring --------------------------------------------------
+
+# Supported CloudWatch Logs retention period for the worker Lambda.
+lambda_log_retention_days = 30
+
+# Optional SNS email subscriber for Lambda/SQS/DLQ alarms. AWS sends a
+# confirmation email after the first apply.
+# operations_alert_email = "ops@example.com"
+
 # --- OpenAI project management -----------------------------------------------
 # Manage OpenAI organization project governance, including allowed models and
 # spend alerts, with Terraform. Management is enabled by default through

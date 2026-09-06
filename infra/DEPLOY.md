@@ -12,14 +12,32 @@
 ## 1. DB と R2
 
 1. Neon project と pooler connection を作成
-2. Cloudflare Hyperdrive を Neon に接続（**query caching は無効**にする。有効だと DELETE 後も古い SELECT が返り、動画削除などが消えたように見えない）
-3. R2 bucket と S3 API token を作成
+2. Cloudflare Hyperdrive を Neon に接続（**query caching は無効**にする。有効だと認証・権限・課金を含む read-after-write が古くなる）
+3. R2 bucket と、`videoq-media-prod` の Object Read & Write のみに制限した S3 API token を作成
 4. `apps/api/wrangler.jsonc` の binding ID / bucket を本番値に設定
+
+既存の本番 Hyperdrive と R2 CORS は、production environment の承認後に手動workflow
+[`cloudflare-resources.yml`](../.github/workflows/cloudflare-resources.yml)を実行して同期します。
+同じ処理をローカルから行う場合:
+
+```bash
+cd apps/api
+npm run cf:hyperdrive:disable-cache
+npm run cf:r2-cors:apply
+npm run cf:hyperdrive:show
+npm run cf:r2-cors:list
+```
+
+R2 CORS の正本は `apps/api/r2-cors.production.json` です。`https://videoq.jp` からの
+署名付き `GET` / `HEAD` / `PUT` と、動画range requestに必要なheaderだけを許可します。
+これを設定しないと、署名URLが正しくてもブラウザからのupload・再生は失敗します。
 
 DB schema:
 
 ```bash
 cd apps/api
+npm run db:check
+npm run db:verify
 DATABASE_URL="<Neon pooler URL>" npm run db:migrate
 ```
 
@@ -32,21 +50,27 @@ DBを参照するAPI／Lambdaの更新より先にmigrationを完了させます
 
 ```bash
 cd apps/api
-npx wrangler secret put BETTER_AUTH_SECRET
-npx wrangler secret put USER_SECRET_ENCRYPTION_KEY
-npx wrangler secret put OPENAI_API_KEY
-npx wrangler secret put R2_ACCESS_KEY_ID
-npx wrangler secret put R2_SECRET_ACCESS_KEY
-npx wrangler secret put SQS_QUEUE_URL
-npx wrangler secret put AWS_ACCESS_KEY_ID
-npx wrangler secret put AWS_SECRET_ACCESS_KEY
+npx wrangler secret put BETTER_AUTH_SECRET --env production
+npx wrangler secret put USER_SECRET_ENCRYPTION_KEY --env production
+npx wrangler secret put OPENAI_API_KEY --env production
+npx wrangler secret put MAILGUN_API_KEY --env production
+npx wrangler secret put R2_ACCESS_KEY_ID --env production
+npx wrangler secret put R2_SECRET_ACCESS_KEY --env production
+npx wrangler secret put SQS_QUEUE_URL --env production
+npx wrangler secret put AWS_ACCESS_KEY_ID --env production
+npx wrangler secret put AWS_SECRET_ACCESS_KEY --env production
 # Google sign-in (optional; both required)
-npx wrangler secret put GOOGLE_CLIENT_ID
-npx wrangler secret put GOOGLE_CLIENT_SECRET
+npx wrangler secret put GOOGLE_CLIENT_ID --env production
+npx wrangler secret put GOOGLE_CLIENT_SECRET --env production
 # Stripe Billing（restricted key rk_ を推奨。未設定なら Checkout / Portal / webhook は 503）
 npx wrangler secret put STRIPE_SECRET_KEY --env production
 npx wrangler secret put STRIPE_WEBHOOK_SECRET --env production
+npx wrangler secret list --env production
 ```
+
+`MAILGUN_API_KEY` は本番必須です。`mg.videoq.jp` をMailgunで検証し、SPF・DKIMを設定します。
+Cloudflare Email Sendingはaccountで検証済みの宛先に限定され、product emailには適さないため
+bindingを持ちません。
 
 Google Cloud Console の OAuth Web クライアントに Authorized redirect URI を登録:
 
@@ -65,7 +89,7 @@ Google Cloud Console の OAuth Web クライアントに Authorized redirect URI
 - `FRONTEND_URL` / `CORS_ALLOW_ORIGIN`
 - `R2_BUCKET_NAME` / `R2_S3_ENDPOINT` / `R2_S3_REGION`（`USE_S3_STORAGE=true` 時必須。未設定だと `/api/videos` が 500）
 - embedding / LLM model
-- Hyperdrive、R2、KV、Durable Object binding
+- Hyperdrive、R2、Durable Object binding（KVは使用しない）
 
 Cookie session は `sameSite=lax` です。frontend と API を同一サイト（例: `videoq.jp` + `/api`）で配信してください。オリジン分離する場合は cookie 属性の見直しが必要です。
 
@@ -80,16 +104,19 @@ Cookie session は `sameSite=lax` です。frontend と API を同一サイト�
 | Secret | 用途 |
 |---|---|
 | `CLOUDFLARE_API_TOKEN` | Workers デプロイ用 API トークン（Edit Cloudflare Workers 相当） |
+| `CLOUDFLARE_INFRA_TOKEN` | 手動resource同期用（対象accountのHyperdrive更新とR2 CORS更新に限定） |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID |
+
+手動resource同期workflowは、上記tokenに加えて必須Worker secretの「名前」がproductionに
+揃っていることも検証します。値は取得・出力しません。
 
 手動デプロイ:
 
 ```bash
-cd apps/api
 npm ci
-npm run typecheck
-npm test
-npm run deploy
+npm run typecheck --workspace @videoq/api
+npm test --workspace @videoq/api
+npm run deploy --workspace @videoq/api
 ```
 
 確認:
@@ -97,8 +124,10 @@ npm run deploy
 ```bash
 curl https://videoq.jp/health
 curl https://videoq.jp/ready
-curl https://videoq.jp/api/openapi.json
 ```
+
+`wrangler.jsonc` はproduction logsを100%、tracesを5%で保存します。デプロイ後はWorkers
+Observabilityでexception・CPU超過と `external_task_backlog_warning` の通知を設定してください。
 
 ## 4. Worker infrastructure
 
@@ -161,6 +190,22 @@ terraform apply
 IAM ポリシー JSON を更新した場合は `infra/iam/README.md` の更新手順で
 `videoq-terraform-deploy` を差し替えてから apply してください。
 
+GitHub Actionsは固定AWS access keyではなく、plan / deployを分離したOIDC roleを使います。
+初回作成とrepository secrets（`AWS_GITHUB_ACTIONS_PLAN_ROLE_ARN`、
+`AWS_GITHUB_ACTIONS_DEPLOY_ROLE_ARN`）は[`iam/README.md`](iam/README.md)を参照してください。
+
+既存Lambdaが一度でも動作済みなら、CloudWatch Logs groupはAWSが先に作成しています。
+最初のmonitoring apply前に一度だけstateへimportします。
+
+```bash
+cd infra
+terraform import aws_cloudwatch_log_group.worker /aws/lambda/videoq-worker-prod
+```
+
+`operations_alert_email`を設定すると、Lambda error / throttle / 長時間実行、SQS滞留、
+DLQ到達をSNS emailで通知します。apply後にAWSから届くsubscription確認メールを承認して
+ください。ログ保持期間は`lambda_log_retention_days`（既定30日）です。
+
 **arm64 cutover:** Lambda の `architectures = ["arm64"]` とイメージ arch は一致が必須です。
 `terraform apply` の前に、下の手順で **arm64 イメージを ECR に push** してください
 （amd64 のまま arch だけ変えると更新が失敗します）。
@@ -209,15 +254,29 @@ API Worker（Cloudflare）の SQS 送信用クレデンシャルは別 IAM ユ�
 
 ## 5. Frontend
 
-Cloudflare Pages:
+Cloudflare PagesはGit integrationを正本とし、`main`へのpushで自動deployします。
+同じprojectにCDからDirect Uploadも行うと二重deployになるため併用しません。
+
+Pages project:
 
 | 項目 | 値 |
 |---|---|
-| root directory | `frontend` |
-| build command | `npm run build` |
-| output | `dist` |
+| root directory | `/`（repository root） |
+| build command | `npm ci && npm run build --workspace @videoq/web` |
+| output | `apps/web/dist` |
 | `VITE_API_URL` | 公開 API origin または `/api` |
 | `VITE_USE_S3_STORAGE` | `true` |
+
+Build watch pathsには `apps/web/**`、`packages/trpc/**`、ルートの`package.json`と
+`package-lock.json`を含めます。production branchが`main`であることもPages dashboardで確認します。
+Git integrationを使わずDirect Upload projectとして運用する場合のみ、CI成果物を次でdeployします:
+
+```bash
+cd apps/api
+npx wrangler pages deploy ../web/dist \
+  --project-name "$CLOUDFLARE_PAGES_PROJECT" \
+  --branch main
+```
 
 同一 host で配信する場合、`/api/*` と `/.well-known/*` を Worker route に割り当てます。
 
@@ -255,7 +314,7 @@ npm run db:maintain -- drop --dry-run
 npm run db:maintain -- drop --confirm
 ```
 
-## 7. Better Auth cutover（破壊的）
+## 7. Better Auth 初回cutover（破壊的・旧0005）
 
 `0005_better_auth` 適用後:
 
@@ -273,18 +332,56 @@ npm run db:maintain -- drop --confirm
 5. API と frontend を同時デプロイ
 6. 利用者へ password reset・API key / OAuth / SearchAPI 再発行を告知
 
-## 8. リリース確認
+この節は旧認証から`0005_better_auth`へ初めて移る環境だけが対象です。すでにBetter Authを
+運用している環境で、1.7へ上げるために再実行しないでください。
+
+## 8. Better Auth 1.7 migration（Claude client再登録）
+
+`0017_invalidate_legacy_oauth_grants`〜`0020_finalize_better_auth_issuer`は、Better Auth 1.7のresource-bound tokenへ
+安全に切り替えるため、既存の外部OAuth client・consent・access token・refresh tokenを
+削除します。ブラウザsession、API key、Googleログイン等の`account`は維持し、account issuerを
+旧provider単位でbackfillします。MCP protected resourceはmigration SQLへ本番URLを埋め込まず、
+API起動時に`BETTER_AUTH_URL`から環境別にseedします。
+
+構造変更の`0018`と`0020`は`drizzle-kit generate`の未編集出力です。データ変更の`0017`と
+`0019`だけを`drizzle-kit generate --custom`で作成しています。
+
+適用前にbackupを取得し、account重複がないことを確認します。1行でも返った場合は
+migrationを止め、原因を解消してください。
+
+```sql
+SELECT provider_id, account_id, count(*)
+FROM account
+GROUP BY provider_id, account_id
+HAVING count(*) > 1;
+```
+
+```bash
+cd apps/api
+DATABASE_URL="<Neon direct connection URL>" npm run db:migrate
+```
+
+適用後はClaude Code側の旧VideoQ接続を削除し、`claude mcp add`で再登録します。
+`tools/list`とread toolを確認し、write scopeを承認した接続では冪等キー付きwrite toolも
+1件確認します。
+
+## 9. リリース確認
 
 - `/health` と `/ready`
 - signup / login / logout（cookie session）
 - password reset 後に既存利用者が login でき、旧 password では login できないこと
-- API key 再発行と `x-api-key` での保護 API 呼び出し
-- OAuth client 再登録、consent / device、SearchAPI key 再入力
+- API key 再発行と `Authorization: Bearer` / `X-API-Key` でのMCP tool呼び出し
+- 旧0005 cutover時のみOAuth client再登録・SearchAPI key再入力
 - R2 署名 upload と動画確定
+- R2 CORS (`npm run cf:r2-cors:list --workspace @videoq/api`)
+- Hyperdrive query cache disabled (`npm run cf:hyperdrive:show --workspace @videoq/api`)
+- Mailgun signup verification / password reset / course invitation
 - SQS enqueue と worker completion
 - chat / SSE（`credentials: include`）
-- `/api/openapi.json`
+- tRPC query/mutation from the SPA
 - OAuth discovery / DCR / PKCE
-- MCP initialize / tools list
+- MCP initialize / tools list / read tool / 冪等なwrite tool
+- Better Auth 1.7 migration後、旧Claude Code tokenが拒否され、再登録した接続が使えること
+- CloudWatch alarmの状態とSNS subscription確認
 
 Cloudflare Workers logs と Lambda CloudWatch logs の両方を確認してください。

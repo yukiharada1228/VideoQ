@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createApp } from "../src/app";
 import { mcpRoutes } from "../src/features/mcp/routes";
+import { setRateLimitBackendForTests } from "../src/lib/rate-limit";
 
 import {
   executeFakePgQuery,
@@ -142,7 +143,63 @@ describe("MCP auth", () => {
     expect(await res.json()).toEqual({ jsonrpc: "2.0", id: 1, result: {} });
   });
 
-  it("accepts read_only API key (analytics-only read scope)", async () => {
+  it("enforces videoq.write for OAuth write tools", async () => {
+    const res = await mcpRoutes.request(
+      "/",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          authorization: "Bearer oauth-access-token-value",
+          "X-VideoQ-Test-OAuth-User-Id":
+            "00000000-0000-4000-8000-000000000009",
+          "X-VideoQ-Test-OAuth-Scopes": "videoq.read",
+        },
+        body: JSON.stringify(
+          jsonrpc("tools/call", {
+            name: "create_course",
+            arguments: {
+              idempotency_key: "course-physics-oauth-1",
+              name: "Physics",
+            },
+          }),
+        ),
+      },
+      ENV,
+    );
+    const result = (await res.json()).result;
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toEqual({ status: 403, code: "FORBIDDEN" });
+  });
+
+  it("returns an insufficient_scope challenge when OAuth lacks videoq.read", async () => {
+    const res = await mcpRoutes.request(
+      "/",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          authorization: "Bearer oauth-access-token-value",
+          "X-VideoQ-Test-OAuth-User-Id":
+            "00000000-0000-4000-8000-000000000009",
+          "X-VideoQ-Test-OAuth-Scopes": "openid profile",
+        },
+        body: JSON.stringify(jsonrpc("ping")),
+      },
+      ENV,
+    );
+    expect(res.status).toBe(403);
+    expect(res.headers.get("WWW-Authenticate")).toContain(
+      'error="insufficient_scope"',
+    );
+    expect(await res.json()).toMatchObject({
+      error: { code: "FORBIDDEN" },
+    });
+  });
+
+  it("accepts read_only API key for read tools", async () => {
     const res = await post(jsonrpc("initialize", initializeParams), {
       "X-VideoQ-Test-Access-Level": "read_only",
     });
@@ -160,19 +217,25 @@ describe("MCP JSON-RPC", () => {
     expect(body.result.protocolVersion).toBe("2025-03-26");
     expect(body.result.serverInfo).toEqual({
       name: "videoq-api",
-      version: "0.2.0",
+      version: "0.3.0",
     });
   });
 
   it("lists all tools", async () => {
     const res = await post(jsonrpc("tools/list"));
-    const names = (await res.json()).result.tools.map((t: { name: string }) => t.name);
+    const tools = (await res.json()).result.tools as Array<Record<string, unknown>>;
+    const names = tools.map((tool) => tool.name);
     expect(names.sort()).toEqual(
       [
         "list_videos",
         "get_video",
+        "request_video_upload",
+        "confirm_video_upload",
+        "create_youtube_video",
         "list_courses",
         "get_course",
+        "create_course",
+        "add_video_to_course",
         "list_tags",
         "get_chat_history",
         "get_chat_analytics",
@@ -180,6 +243,145 @@ describe("MCP JSON-RPC", () => {
         "list_evaluation_logs",
       ].sort(),
     );
+    for (const tool of tools) {
+      expect(tool.title, `${String(tool.name)} title`).toEqual(expect.any(String));
+      expect(tool.description, `${String(tool.name)} description`).toEqual(
+        expect.any(String),
+      );
+      expect(tool.inputSchema, `${String(tool.name)} inputSchema`).toMatchObject({
+        type: "object",
+      });
+      expect(tool.outputSchema, `${String(tool.name)} outputSchema`).toMatchObject({
+        type: "object",
+      });
+      expect(tool.annotations, `${String(tool.name)} annotations`).toEqual(
+        expect.objectContaining({
+          readOnlyHint: expect.any(Boolean),
+          destructiveHint: expect.any(Boolean),
+          idempotentHint: expect.any(Boolean),
+          openWorldHint: expect.any(Boolean),
+        }),
+      );
+    }
+    expect(
+      tools.filter(
+        (tool) =>
+          (tool.annotations as { readOnlyHint?: boolean }).readOnlyHint === true,
+      ),
+    ).toHaveLength(9);
+    expect(
+      tools.filter(
+        (tool) =>
+          (tool.annotations as { readOnlyHint?: boolean }).readOnlyHint === false,
+      ),
+    ).toHaveLength(5);
+    expect(tools.find((tool) => tool.name === "list_videos")).toMatchObject({
+      title: "List videos",
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      outputSchema: { type: "object" },
+    });
+    expect(tools.find((tool) => tool.name === "create_course")).toMatchObject({
+      title: "Create course",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      outputSchema: { type: "object" },
+    });
+
+    const concreteOutputFields = [
+      ["list_videos", ["properties", "videos", "items", "properties"], "id"],
+      ["get_video", ["properties", "video", "properties"], "status"],
+      ["request_video_upload", ["properties", "video", "properties"], "source_type"],
+      ["confirm_video_upload", ["properties", "video", "properties"], "uploaded_at"],
+      ["create_youtube_video", ["properties", "video", "properties"], "youtube_video_id"],
+      ["list_courses", ["properties", "courses", "items", "properties"], "access_role"],
+      ["get_course", ["properties", "course", "properties"], "videos"],
+      ["create_course", ["properties", "course", "properties"], "name"],
+      ["add_video_to_course", ["properties", "result", "properties"], "reused"],
+      ["list_tags", ["properties", "tags", "items", "properties"], "video_count"],
+      ["get_chat_history", ["properties", "history", "items", "properties"], "question"],
+      ["get_chat_analytics", ["properties", "analytics", "properties"], "summary"],
+      ["get_evaluation_summary", ["properties", "summary", "properties"], "evaluated_count"],
+      ["list_evaluation_logs", ["properties", "logs", "items", "properties"], "status"],
+    ] as const;
+    for (const [name, path, field] of concreteOutputFields) {
+      const tool = tools.find((candidate) => candidate.name === name);
+      let current: unknown = tool?.outputSchema;
+      for (const segment of path) {
+        current = current && typeof current === "object"
+          ? (current as Record<string, unknown>)[segment]
+          : undefined;
+      }
+      expect(current, `${name} concrete output properties`).toBeTypeOf("object");
+      expect(current, `${name} output field ${field}`).toHaveProperty(field);
+    }
+  });
+
+  it("rejects write tools for a read_only API key", async () => {
+    const res = await post(
+      jsonrpc("tools/call", {
+        name: "create_course",
+        arguments: { name: "Physics", idempotency_key: "course-physics-1" },
+      }),
+      { "X-VideoQ-Test-Access-Level": "read_only" },
+    );
+    const result = (await res.json()).result;
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toBe("Write permission is required for this tool.");
+    expect(result.structuredContent).toEqual({ status: 403, code: "FORBIDDEN" });
+  });
+
+  it("validates structured output for a successful idempotent course creation", async () => {
+    rowsFor = (sql) => {
+      if (sql.includes("UPDATE api_keys")) return apiKeyRow();
+      if (sql.includes('FROM "mcp_idempotency_records"')) return [];
+      if (sql.toLowerCase().includes('insert into "video_courses"')) {
+        return [{ id: 7 }];
+      }
+      if (
+        sql.includes('FROM "video_courses"') &&
+        !sql.includes('INNER JOIN "videos"')
+      ) {
+        return [
+          {
+            id: 7,
+            name: "Physics",
+            description: "Semester 1",
+            display_order: 0,
+            created_at: "2026-09-01T00:00:00.000Z",
+            updated_at: "2026-09-01T00:00:00.000Z",
+            share_slug: null,
+            video_count: 0,
+            owner_user_id: "00000000-0000-4000-8000-000000000005",
+          },
+        ];
+      }
+      return [];
+    };
+    const res = await post(
+      jsonrpc("tools/call", {
+        name: "create_course",
+        arguments: {
+          idempotency_key: "course-physics-success-1",
+          name: "Physics",
+          description: "Semester 1",
+        },
+      }),
+    );
+    const result = (await res.json()).result;
+    expect(result.isError).toBe(false);
+    expect(result.structuredContent).toMatchObject({
+      course: { id: 7, name: "Physics", videos: [] },
+      reused: false,
+    });
   });
 
   it("tools/call list_videos returns empty envelope", async () => {
@@ -196,8 +398,13 @@ describe("MCP JSON-RPC", () => {
     const result = (await res.json()).result;
     expect(result.isError).toBe(false);
     expect(result.structuredContent).toEqual({
-      meta: { total: 0, limit: 20, offset: 0 },
-      data: [],
+      meta: {
+        total: 0,
+        limit: 20,
+        offset: 0,
+        has_more: false,
+        next_offset: null,
+      },
       videos: [],
     });
   });
@@ -214,7 +421,7 @@ describe("MCP JSON-RPC", () => {
     const result = (await res.json()).result;
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toBe("Video not found");
-    expect(result.structuredContent).toEqual({ status: 404 });
+    expect(result.structuredContent).toEqual({ status: 404, code: "NOT_FOUND" });
   });
 
   it("tools/call coerces string video_id", async () => {
@@ -230,6 +437,73 @@ describe("MCP JSON-RPC", () => {
     const result = (await res.json()).result;
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toBe("Video not found");
+  });
+
+  it("returns only a bounded transcript chunk and omits signed file/user fields", async () => {
+    rowsFor = (sql) => {
+      if (sql.includes("UPDATE api_keys")) return apiKeyRow();
+      if (sql.includes('FROM "videos"')) {
+        return [
+          {
+            id: 42,
+            user_id: "00000000-0000-4000-8000-000000000005",
+            file: "videos/user/lecture.mp4",
+            title: "Lecture",
+            description: "",
+            uploaded_at: "2026-09-01T00:00:00.000Z",
+            transcript: "0123456789",
+            status: "completed",
+            source_type: "uploaded",
+            source_url: "",
+            youtube_video_id: "",
+            error_message: "",
+            tags: "[]",
+          },
+        ];
+      }
+      return [];
+    };
+    const res = await post(
+      jsonrpc("tools/call", {
+        name: "get_video",
+        arguments: {
+          video_id: 42,
+          include_transcript: true,
+          transcript_offset: 3,
+          transcript_limit: 4,
+        },
+      }),
+    );
+    const video = (await res.json()).result.structuredContent.video;
+    expect(video).not.toHaveProperty("file");
+    expect(video).not.toHaveProperty("user");
+    expect(video.transcript).toEqual({
+      text: "3456",
+      offset: 3,
+      returned_chars: 4,
+      total_chars: 10,
+      has_more: true,
+      next_offset: 7,
+    });
+  });
+
+  it("returns a tool error when the per-user MCP rate limit is exhausted", async () => {
+    setRateLimitBackendForTests({
+      consume: async () => ({ allowed: false, retryAfterSec: 17 }),
+      release: async () => {},
+      snapshot: async () => null,
+      record: async () => {},
+    });
+    const res = await post(
+      jsonrpc("tools/call", { name: "list_videos", arguments: {} }),
+    );
+    const result = (await res.json()).result;
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toEqual({
+      status: 429,
+      code: "RATE_LIMITED",
+      retry_after_seconds: 17,
+    });
   });
 
   it("GET with application/json-only Accept is normalized to open SSE", async () => {

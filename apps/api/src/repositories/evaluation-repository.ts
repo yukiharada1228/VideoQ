@@ -4,6 +4,8 @@ import { chatLogs, chatLogEvaluations, videoCourses } from "../db/schema";
 import { toUtcIso } from "../shared/datetime";
 import type { Bindings } from "../types/bindings";
 
+type EvaluationStatus = "pending" | "completed" | "failed";
+
 export type EvaluationSummary = {
   course_id: number;
   evaluated_count: number;
@@ -14,7 +16,7 @@ export type EvaluationSummary = {
 
 export type EvaluationLog = {
   chat_log_id: number;
-  status: string;
+  status: EvaluationStatus;
   faithfulness: number | null;
   answer_relevancy: number | null;
   context_precision: number | null;
@@ -23,6 +25,11 @@ export type EvaluationLog = {
 };
 
 const numOrNull = (v: unknown): number | null => (v === null ? null : Number(v));
+
+function evaluationStatus(value: string): EvaluationStatus {
+  if (value === "pending" || value === "completed" || value === "failed") return value;
+  throw new Error(`Invalid evaluation status in database: ${value}`);
+}
 
 
 /**
@@ -102,7 +109,7 @@ export async function listEvaluationLogs(
 
     const results: EvaluationLog[] = rows.map((r) => ({
       chat_log_id: Number(r.chat_log_id),
-      status: r.status,
+      status: evaluationStatus(r.status),
       faithfulness: numOrNull(r.faithfulness),
       answer_relevancy: numOrNull(r.answer_relevancy),
       context_precision: numOrNull(r.context_precision),

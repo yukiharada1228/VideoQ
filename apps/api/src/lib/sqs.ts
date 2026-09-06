@@ -1,5 +1,8 @@
 import { AwsClient } from "aws4fetch";
 import type { Bindings } from "../types/bindings";
+import { deadlineSignal } from "./request-timeout";
+
+const SQS_TIMEOUT_MS = 10_000;
 
 /**
  * SQS SendMessage（aws4fetch SigV4, query プロトコル）。PoC #02 で実 AWS/ElasticMQ 疎通済み。
@@ -36,6 +39,7 @@ export async function sendSqsMessage(
       method: "POST",
       body: form.toString(),
       headers: { "content-type": "application/x-www-form-urlencoded" },
+      signal: deadlineSignal(SQS_TIMEOUT_MS),
     });
 
     const text = await res.text();

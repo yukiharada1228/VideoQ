@@ -143,12 +143,18 @@ export async function addVideoToCourseOne(
 
   const r = await addVideoToCourse(env, courseId, videoId);
   if ("alreadyIn" in r) {
-    return { badRequest: "This video is already added to the course" } as const;
+    return {
+      ok: true as const,
+      message: "Video is already in the course",
+      id: r.id,
+      reused: true,
+    };
   }
   return {
     ok: true as const,
     message: "Video added to course",
     id: r.id,
+    reused: false,
   };
 }
 

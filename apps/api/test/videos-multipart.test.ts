@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { videoRoutes } from "../src/features/videos/routes";
 import { signAccessToken } from "./helpers/auth";
+import { requestTrpc, trpcError } from "./helpers/trpc";
 
 import {
   isAuthSessionActiveSql,
@@ -107,28 +108,34 @@ beforeEach(() => {
   });
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("POST / — USE_S3_STORAGE=true（廃線）", () => {
   const ENV = { ...baseEnv, USE_S3_STORAGE: "true" } as unknown as Record<string, unknown>;
 
-  it("認証済みでも 400 で署名 URL 経路を案内する", async () => {
+  it("本文を解析せず 400 で署名 URL 経路を案内する", async () => {
+    const body = new FormData();
+    body.append("file", new File(["unused"], "unused.mp4", { type: "video/mp4" }));
+    const formDataSpy = vi.spyOn(Request.prototype, "formData");
     const res = await videoRoutes.request(
       "/",
       {
         method: "POST",
         headers: {
-          "content-type": "application/json",
           "X-VideoQ-Test-User-Id": "00000000-0000-4000-8000-000000000005",
         },
-        body: JSON.stringify({ title: "x" }),
+        body,
       },
       ENV,
     );
     expect(res.status).toBe(400);
+    expect(formDataSpy).not.toHaveBeenCalled();
     expect(await res.json()).toEqual({
       error: {
         code: "VALIDATION_ERROR",
-        message: "No file was submitted.",
-        details: { file: ["No file was submitted."] },
+        message: "Direct multipart upload is unavailable in object-storage mode. Call the videos.requestUpload tRPC procedure, PUT the file to upload_url, then call videos.confirmUpload.",
       },
     });
   });
@@ -173,31 +180,24 @@ describe("POST / — USE_S3_STORAGE=false（multipart）", () => {
   });
 });
 
-describe("POST /uploads/ — local では不可", () => {
+describe("videos.requestUpload — local では不可", () => {
   it("USE_S3_STORAGE=false は 400", async () => {
     const ENV = { ...baseEnv, USE_S3_STORAGE: "false" } as unknown as Record<string, unknown>;
-    const res = await videoRoutes.request(
-      "/uploads",
+    const res = await requestTrpc(
+      "videos.requestUpload",
+      "mutation",
       {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "X-VideoQ-Test-User-Id": "00000000-0000-4000-8000-000000000005",
-        },
-        body: JSON.stringify({
-          filename: "a.mp4",
-          content_type: "video/mp4",
-          file_size: 10,
-          title: "t",
-        }),
+        filename: "a.mp4",
+        contentType: "video/mp4",
+        fileSize: 10,
+        title: "t",
       },
+      { headers: { "X-VideoQ-Test-User-Id": "00000000-0000-4000-8000-000000000005" } },
       ENV,
     );
     expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: {
-        message: "Presigned upload URLs are unavailable when USE_S3_STORAGE=False.",
-      },
+    expect(await trpcError(res)).toMatchObject({
+      message: "Presigned upload URLs are unavailable when USE_S3_STORAGE=False.",
     });
   });
 });

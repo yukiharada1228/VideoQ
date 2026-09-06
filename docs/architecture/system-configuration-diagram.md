@@ -6,13 +6,12 @@
 flowchart TB
     User[Browser / API client / MCP client]
     Pages[Cloudflare Pages<br/>React SPA]
-    API[Cloudflare Workers<br/>Hono + OpenAPIHono]
+    API[Cloudflare Workers<br/>Hono + tRPC]
     HD[Cloudflare Hyperdrive]
     Neon[(Neon PostgreSQL<br/>pgvector)]
     R2[(Cloudflare R2)]
-    DO[Durable Object<br/>Rate limiter]
-    KV[KV<br/>Study session]
-    Email[Cloudflare Email]
+    DO[Durable Objects<br/>Rate limiter / Study session]
+    Email[Mailgun<br/>Transactional email]
     SQS[Amazon SQS]
     Lambda[Python Lambda worker]
     AI[OpenAI / external AI]
@@ -22,7 +21,6 @@ flowchart TB
     API --> HD --> Neon
     API --> R2
     API --> DO
-    API --> KV
     API --> Email
     API --> SQS --> Lambda
     Lambda --> Neon
@@ -51,10 +49,11 @@ flowchart LR
 
 ## セキュリティ境界
 
-- browser session: memory-only Bearer access token + rotating HttpOnly refresh cookie
-- server integration: hash 保存された `vq_...` API key
-- OAuth client: PKCE と opaque access / refresh token
+- browser session: Better Auth の HttpOnly cookie session
+- MCP integration: hash 保存された `vq_...` API key、またはOAuth 2.1
+- OAuth client: PKCE、resource audienceに束縛したJWT access token、refresh token
 - user secret: AES-256-GCM
 - DB: Worker から Hyperdrive 経由
 - object storage: 署名 URL または認可済み API stream
-- rate limit: Durable Object
+- rate limit / study session: Durable Objects
+- transactional email: Mailgun

@@ -1,0 +1,77 @@
+import { TRPCError, type TRPC_ERROR_CODE_KEY } from "@trpc/server";
+import type {
+  ProcedureHandlers,
+  ProcedureName,
+  RpcCaller,
+} from "@videoq/trpc";
+import { ApiError } from "../../shared/errors";
+
+export type HandlersFor<Domain extends string> = Pick<
+  ProcedureHandlers,
+  Extract<ProcedureName, `${Domain}.${string}`>
+>;
+
+export function rpcError(
+  code: TRPC_ERROR_CODE_KEY,
+  message: string,
+  cause?: unknown,
+): never {
+  throw new TRPCError({ code, message, cause });
+}
+
+function apiStatusToTrpcCode(status: number): TRPC_ERROR_CODE_KEY {
+  switch (status) {
+    case 400:
+      return "BAD_REQUEST";
+    case 401:
+      return "UNAUTHORIZED";
+    case 403:
+      return "FORBIDDEN";
+    case 404:
+      return "NOT_FOUND";
+    case 409:
+      return "CONFLICT";
+    case 410:
+      return "CONFLICT";
+    case 412:
+      return "PRECONDITION_FAILED";
+    case 413:
+      return "PAYLOAD_TOO_LARGE";
+    case 429:
+      return "TOO_MANY_REQUESTS";
+    case 503:
+      return "INTERNAL_SERVER_ERROR";
+    default:
+      return "INTERNAL_SERVER_ERROR";
+  }
+}
+
+function normalizeError(error: unknown): never {
+  if (error instanceof TRPCError) throw error;
+  if (error instanceof ApiError) {
+    throw new TRPCError({
+      code: apiStatusToTrpcCode(error.status),
+      message: error.expose ? error.message : "Request failed",
+      cause: error,
+    });
+  }
+  throw error;
+}
+
+export function createRpcCaller(handlers: ProcedureHandlers): RpcCaller {
+  return (async (name, input) => {
+    try {
+      const handler = handlers[name] as (value: typeof input) => Promise<unknown>;
+      return await handler(input);
+    } catch (error) {
+      return normalizeError(error);
+    }
+  }) as RpcCaller;
+}
+
+export function requireUserId(userId: string | null): string {
+  if (userId === null) {
+    return rpcError("UNAUTHORIZED", "Authentication credentials were not provided.");
+  }
+  return userId;
+}

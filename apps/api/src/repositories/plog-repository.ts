@@ -16,6 +16,7 @@ import type {
   PlogLearningObject,
   PlogSummaryNode,
 } from "../lib/plog-runtime";
+import type { PlogWaypoint } from "@videoq/trpc";
 import { ORDERING, isDag } from "../lib/plog-ordering";
 import { stableKey } from "../shared/canonical-json";
 import { insertJobTask } from "./external-task-repository";
@@ -30,11 +31,11 @@ export type PlogConceptNode = {
   intro_sec: number;
   source_quote: string;
   opening_question: string;
-  hint_ladder: unknown[];
-  misconceptions: unknown[];
-  canonical_order: unknown[];
-  worked_examples: unknown[];
-  waypoints: unknown[];
+  hint_ladder: string[];
+  misconceptions: string[];
+  canonical_order: string[];
+  worked_examples: string[];
+  waypoints: PlogWaypoint[];
   hint_count: number;
   waypoint_count: number;
 };
@@ -68,10 +69,23 @@ export type LearnerStateItem = {
 };
 
 const parseArr = (v: unknown): unknown[] => (v ? JSON.parse(v as string) : []);
+const parseStringArr = (v: unknown): string[] => parseArr(v).map(String);
+const parseWaypoints = (v: unknown): PlogWaypoint[] =>
+  parseArr(v).flatMap((item) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) return [];
+    const waypoint = item as Record<string, unknown>;
+    return [{
+      ...(typeof waypoint.start_sec === "number" ? { start_sec: waypoint.start_sec } : {}),
+      ...(typeof waypoint.end_sec === "number" ? { end_sec: waypoint.end_sec } : {}),
+      ...(typeof waypoint.start_time === "string" ? { start_time: waypoint.start_time } : {}),
+      ...(typeof waypoint.end_time === "string" ? { end_time: waypoint.end_time } : {}),
+      ...(typeof waypoint.label === "string" ? { label: waypoint.label } : {}),
+    }];
+  });
 
 function mapConcept(r: Record<string, unknown>): PlogConceptNode {
-  const hint_ladder = parseArr(r.hint_ladder);
-  const waypoints = parseArr(r.waypoints);
+  const hint_ladder = parseStringArr(r.hint_ladder);
+  const waypoints = parseWaypoints(r.waypoints);
   return {
     id: Number(r.id),
     label: r.label as string,
@@ -80,9 +94,9 @@ function mapConcept(r: Record<string, unknown>): PlogConceptNode {
     source_quote: (r.source_quote as string) ?? "",
     opening_question: (r.opening_question as string) ?? "",
     hint_ladder,
-    misconceptions: parseArr(r.misconceptions),
-    canonical_order: parseArr(r.canonical_order),
-    worked_examples: parseArr(r.worked_examples),
+    misconceptions: parseStringArr(r.misconceptions),
+    canonical_order: parseStringArr(r.canonical_order),
+    worked_examples: parseStringArr(r.worked_examples),
     waypoints,
     hint_count: hint_ladder.length,
     waypoint_count: waypoints.length,

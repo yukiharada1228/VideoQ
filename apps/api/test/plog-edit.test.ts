@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { plogRoutes } from "../src/features/plog/routes";
+import type { ProcedureName, RpcInputMap } from "@videoq/trpc";
 import { signAccessToken } from "./helpers/auth";
+import { requestTrpc, trpcData, trpcError } from "./helpers/trpc";
 
 /**
  * PLOG 編集ルートの結線テスト。pg をモックし、認可・DAG・マージ SQL 順を検証する。
@@ -98,46 +99,37 @@ async function token(userId = "00000000-0000-4000-8000-000000000005") {
   return signAccessToken(SECRET, userId);
 }
 
-const req = async (
-  path: string,
-  method: string,
-  body?: unknown,
+const mutate = async <Name extends ProcedureName>(
+  procedure: Name,
+  input: RpcInputMap[Name],
   t?: string,
-) =>
-  plogRoutes.request(
-    path,
-    {
-      method,
-      headers: {
-        "content-type": "application/json",
-        ...(t ? { "X-VideoQ-Test-User-Id": "00000000-0000-4000-8000-000000000005" } : {}),
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    },
-    ENV,
-  );
+) => {
+  const headers = t
+    ? { "X-VideoQ-Test-User-Id": "00000000-0000-4000-8000-000000000005" }
+    : {};
+  return requestTrpc(procedure, "mutation", input, { headers }, ENV);
+};
 
-describe("POST /:id/plog/concepts/", () => {
-  it("label 必須・作成で 201", async () => {
-    const empty = await req(
-      "/1/plog/concepts",
-      "POST",
-      { label: "  " },
+describe("plog.createConcept", () => {
+  it("label 必須・正常作成", async () => {
+    const empty = await mutate(
+      "plog.createConcept",
+      { videoId: 1, label: "  " },
       await token(),
     );
     expect(empty.status).toBe(400);
-    expect(await empty.json()).toEqual({
-      error: { code: "VALIDATION_ERROR", message: "label is required" },
+    expect(await trpcError(empty)).toMatchObject({
+      code: "VALIDATION_ERROR",
+      message: "label is required",
     });
 
-    const res = await req(
-      "/1/plog/concepts",
-      "POST",
-      { label: "AND", node_type: "object", intro_sec: 1.5 },
+    const res = await mutate(
+      "plog.createConcept",
+      { videoId: 1, label: "AND", nodeType: "object", introSec: 1.5 },
       await token(),
     );
-    expect(res.status).toBe(201);
-    const body = (await res.json()) as any;
+    expect(res.status).toBe(200);
+    const body = await trpcData<any>(res);
     expect(body.id).toBe(10);
     expect(body.label).toBe("AND");
     expect(body.hint_count).toBe(0);
@@ -153,37 +145,34 @@ describe("POST /:id/plog/concepts/", () => {
       if (sql.includes("plog_build_jobs")) return [{ status: "running" }];
       return [];
     };
-    const res = await req(
-      "/1/plog/concepts",
-      "POST",
-      { label: "X" },
+    const res = await mutate(
+      "plog.createConcept",
+      { videoId: 1, label: "X" },
       await token(),
     );
     expect(res.status).toBe(400);
-    expect((await res.json()) as any).toEqual({
-      error: {
-        code: "VALIDATION_ERROR",
-        message: "Cannot edit graph while a rebuild is in progress.",
-      },
+    expect(await trpcError(res)).toEqual({
+      code: "VALIDATION_ERROR",
+      message: "Cannot edit graph while a rebuild is in progress.",
     });
   });
 
   it("他人の動画は 404", async () => {
     rowsFor = () => [];
-    const res = await req(
-      "/1/plog/concepts",
-      "POST",
-      { label: "X" },
+    const res = await mutate(
+      "plog.createConcept",
+      { videoId: 1, label: "X" },
       await token(),
     );
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({
-      error: { code: "VALIDATION_ERROR", message: "Video not found." },
+    expect(await trpcError(res)).toEqual({
+      code: "VALIDATION_ERROR",
+      message: "Video not found.",
     });
   });
 });
 
-describe("POST /:id/plog/edges/", () => {
+describe("plog.createEdge", () => {
   it("サイクルになる ordering 辺は 400", async () => {
     rowsFor = (sql, args) => {
       if (sql.includes("videos") && sql.includes("user_id")) return [{ id: 1 }];
@@ -198,19 +187,18 @@ describe("POST /:id/plog/edges/", () => {
         ];
       return [];
     };
-    const res = await req(
-      "/1/plog/edges",
-      "POST",
-      { source_id: 10, target_id: 11, edge_type: "prerequisite_of" },
+    const res = await mutate(
+      "plog.createEdge",
+      { videoId: 1, sourceId: 10, targetId: 11, edgeType: "prerequisite_of" },
       await token(),
     );
     expect(res.status).toBe(400);
-    expect((await res.json()) as any).toMatchObject({
-      error: { message: "Ordering edges must form a DAG (cycle detected)." },
+    expect(await trpcError(res)).toMatchObject({
+      message: "Ordering edges must form a DAG (cycle detected).",
     });
   });
 
-  it("正常作成は 201", async () => {
+  it("正常作成は 200", async () => {
     rowsFor = (sql, args) => {
       if (sql.includes("videos") && sql.includes("user_id")) return [{ id: 1 }];
       if (sql.includes("plog_build_jobs")) return [{ status: "ready" }];
@@ -241,14 +229,13 @@ describe("POST /:id/plog/edges/", () => {
         ];
       return [];
     };
-    const res = await req(
-      "/1/plog/edges",
-      "POST",
-      { source_id: 10, target_id: 11, edge_type: "prerequisite_of" },
+    const res = await mutate(
+      "plog.createEdge",
+      { videoId: 1, sourceId: 10, targetId: 11, edgeType: "prerequisite_of" },
       await token(),
     );
-    expect(res.status).toBe(201);
-    expect(await res.json()).toMatchObject({
+    expect(res.status).toBe(200);
+    expect(await trpcData(res)).toMatchObject({
       id: 20,
       source_id: 10,
       target_id: 11,
@@ -263,21 +250,20 @@ describe("POST /:id/plog/edges/", () => {
   });
 });
 
-describe("DELETE concept / learner-state", () => {
+describe("PLOG delete and learner-state procedures", () => {
   it("concept 削除は依存順に消して {deleted:true}", async () => {
     rowsFor = (sql) => {
       if (sql.includes("videos") && sql.includes("user_id")) return [{ id: 1 }];
       if (sql.includes("plog_concepts")) return [{ id: 10 }];
       return [];
     };
-    const res = await req(
-      "/1/plog/concepts/10",
-      "DELETE",
-      undefined,
+    const res = await mutate(
+      "plog.deleteConcept",
+      { videoId: 1, conceptId: 10 },
       await token(),
     );
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ deleted: true, id: 10 });
+    expect(await trpcData(res)).toEqual({ deleted: true, id: 10 });
     const sqls = calls.map((c) => c.sql.replace(/\s+/g, " "));
     expect(sqls.some((s) => s.includes("delete from learner_concept_states"))).toBe(true);
     expect(sqls.some((s) => s.includes("delete from plog_learning_objects"))).toBe(true);
@@ -292,23 +278,21 @@ describe("DELETE concept / learner-state", () => {
         return [{}, {}, {}];
       return [];
     };
-    const res = await req(
-      "/1/plog/learner-state",
-      "DELETE",
-      undefined,
+    const res = await mutate(
+      "plog.resetLearnerState",
+      { videoId: 1 },
       await token(),
     );
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ deleted: 3 });
+    expect(await trpcData(res)).toEqual({ deleted: 3 });
   });
 });
 
-describe("POST merge", () => {
+describe("plog.mergeConcepts", () => {
   it("同一 ID は 400、成功時は survivor を返す", async () => {
-    const same = await req(
-      "/1/plog/concepts/10/merge",
-      "POST",
-      { absorb_id: 10 },
+    const same = await mutate(
+      "plog.mergeConcepts",
+      { videoId: 1, survivorId: 10, absorbId: 10 },
       await token(),
     );
     expect(same.status).toBe(400);
@@ -338,14 +322,13 @@ describe("POST merge", () => {
       if (sql.includes("learner_concept_states")) return [];
       return [];
     };
-    const res = await req(
-      "/1/plog/concepts/10/merge",
-      "POST",
-      { absorb_id: 11 },
+    const res = await mutate(
+      "plog.mergeConcepts",
+      { videoId: 1, survivorId: 10, absorbId: 11 },
       await token(),
     );
     expect(res.status).toBe(200);
-    expect((await res.json()) as any).toMatchObject({ id: 10, label: "AND" });
+    expect(await trpcData(res)).toMatchObject({ id: 10, label: "AND" });
     expect(calls.some((c) => c.sql.toLowerCase().includes("begin"))).toBe(true);
     expect(calls.some((c) => c.sql.toLowerCase().includes("commit"))).toBe(true);
   });

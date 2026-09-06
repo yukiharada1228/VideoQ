@@ -64,6 +64,8 @@ resource "aws_lambda_function" "worker" {
   memory_size   = var.worker_lambda_memory_mb
   timeout       = var.worker_lambda_timeout_seconds
 
+  depends_on = [aws_cloudwatch_log_group.worker]
+
   ephemeral_storage {
     size = 5120
   }

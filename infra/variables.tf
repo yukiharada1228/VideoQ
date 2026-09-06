@@ -34,6 +34,23 @@ variable "sqs_max_receive_count" {
   default     = 3
 }
 
+variable "lambda_log_retention_days" {
+  description = "Worker Lambda の CloudWatch Logs 保持日数"
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = contains([1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653], var.lambda_log_retention_days)
+    error_message = "lambda_log_retention_days must be a CloudWatch Logs supported retention value."
+  }
+}
+
+variable "operations_alert_email" {
+  description = "Lambda/SQS運用アラートの通知先（空文字ならSNS email subscriptionを作らない）"
+  type        = string
+  default     = ""
+}
+
 variable "image_tag" {
   description = "Lambda が参照する ECR コンテナイメージのタグ"
   type        = string

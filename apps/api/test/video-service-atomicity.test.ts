@@ -46,6 +46,8 @@ beforeEach(() => {
   videoRepository.reserveAndCreatePendingVideo.mockResolvedValue({
     ok: true,
     videoId: 42,
+    fileKey: "videos/5/video_1700000000000_4096.mp4",
+    reused: false,
   });
   media.isS3Storage.mockReturnValue(true);
   media.presignR2Put.mockResolvedValue("https://upload.test/");
@@ -71,6 +73,19 @@ describe("動画処理の原子性", () => {
     const result = await confirmVideoUpload(env, 42, userId);
 
     expect(result).toMatchObject({ badState: true });
+    expect(externalTasks.processExternalTaskById).not.toHaveBeenCalled();
+  });
+
+  it("並行確認に負けても相手がpendingへ進めていれば成功として再利用する", async () => {
+    videoRepository.getVideoStatus
+      .mockResolvedValueOnce({ found: true, status: "uploading" })
+      .mockResolvedValueOnce({ found: true, status: "pending" });
+    videoRepository.transitionVideoStatus.mockResolvedValue(false);
+
+    await expect(confirmVideoUpload(env, 42, userId)).resolves.toMatchObject({
+      video: { id: 42 },
+      alreadyConfirmed: true,
+    });
     expect(externalTasks.processExternalTaskById).not.toHaveBeenCalled();
   });
 
@@ -160,6 +175,44 @@ describe("動画処理の原子性", () => {
       4096,
     );
     expect(externalTasks.processExternalTaskById).toHaveBeenCalledWith(env, 77);
+  });
+
+  it("確定済みアップロードの再試行では上書き可能な署名URLを再発行しない", async () => {
+    videoRepository.reserveAndCreatePendingVideo.mockResolvedValue({
+      ok: true,
+      videoId: 42,
+      fileKey: "videos/5/video_1700000000000_4096.mp4",
+      reused: true,
+    });
+    videoRepository.getVideoDetail.mockResolvedValue({
+      id: 42,
+      status: "processing",
+    });
+
+    await expect(
+      requestPresignedUpload(
+        env,
+        userId,
+        {
+          filename: "clip.mp4",
+          content_type: "video/mp4",
+          file_size: 4096,
+          title: "clip",
+          description: "",
+        },
+        {
+          action: "request_video_upload",
+          key: "upload-clip-1",
+          requestHash: "a".repeat(64),
+        },
+      ),
+    ).resolves.toMatchObject({
+      video: { id: 42, status: "processing" },
+      upload_url: null,
+      reused: true,
+      already_confirmed: true,
+    });
+    expect(media.presignR2Put).not.toHaveBeenCalled();
   });
 
   it("multipartのR2保存失敗時は先に作った動画と容量を耐久taskで戻す", async () => {

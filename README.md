@@ -8,7 +8,7 @@ VideoQ is an AI-powered video navigator that automatically transcribes videos an
 
 ![VideoQ Application Screenshot](assets/screenshot.png)
 
-> **API integration supported** - Connect VideoQ with existing systems through API key authentication and an OpenAI-compatible API. See [Developer API Integration](#developer-api) for details.
+> **MCP integration supported** - Connect Claude Code and other MCP clients through OAuth or API keys.
 >
 > **Design documentation** - See [docs/](docs/README.md) for architecture diagrams, ER diagrams, sequence diagrams, and other technical details.
 
@@ -17,11 +17,11 @@ VideoQ is an AI-powered video navigator that automatically transcribes videos an
 | Layer | Stack |
 |---|---|
 | Frontend | React 19, TypeScript, Vite → Cloudflare Pages |
-| Web API | Hono / OpenAPIHono, Drizzle ORM → Cloudflare Workers |
+| Web API | Hono + tRPC, Zod, Drizzle ORM → Cloudflare Workers |
 | Async jobs | Python worker → Amazon SQS / AWS Lambda |
 | Database | Neon PostgreSQL + pgvector (local: Docker Postgres) |
 | Object storage | Cloudflare R2 (local: MinIO) |
-| Edge state | Durable Objects (rate limit), KV (study sessions) |
+| Edge state | Durable Objects (rate limits and study sessions) |
 
 Locally, `docker compose` runs Postgres, MinIO, ElasticMQ, the Hono API (`wrangler dev`), the Python worker, a static frontend build, and a Caddy gateway on port 80.
 
@@ -31,7 +31,7 @@ Browser → Caddy → React (nginx) + Hono API
                  MinIO / Postgres ← Python worker ← ElasticMQ (SQS)
 ```
 
-Package READMEs: [`apps/`](apps/README.md) · [`apps/api/`](apps/api/README.md) · [`apps/worker/`](apps/worker/README.md) · [`frontend/`](frontend/README.md)
+Package READMEs: [`apps/`](apps/README.md) · [`apps/api/`](apps/api/README.md) · [`apps/web/`](apps/web/README.md) · [`apps/worker/`](apps/worker/README.md)
 
 ## Features
 
@@ -41,7 +41,7 @@ Package READMEs: [`apps/`](apps/README.md) · [`apps/api/`](apps/api/README.md) 
 - **Organize with tags** - Manage videos with custom tags and colors
 - **Share insights** - Create shareable video courses for team collaboration
 - **Multilingual UI** - Switch between Japanese and English interfaces
-- **Developer integrations** - REST API, OpenAI-compatible chat, and analytics MCP tools
+- **MCP integration** - Manage videos and courses and analyze chat history from Claude Code
 
 ## Quick Start (5 minutes)
 
@@ -95,6 +95,19 @@ Docker Compose also supplies safe local defaults for those secrets if you leave 
 docker compose up --build -d
 ```
 
+DB schemaを変更するときは、repository rootからDrizzle Kitでmigrationを生成します。
+
+```bash
+npm run db:generate -- --name describe_the_schema_change
+npm run db:check
+npm run db:verify
+```
+
+DDLのmigration SQL・snapshot・journalは手で編集しません。データbackfillだけは
+`npm run db:generate:custom -- --name describe_the_data_change`でDrizzle管理下に作成し、
+ファイル先頭を`-- drizzle-kit:custom`にします。CIは生成DDLとの完全一致と空DBへの全履歴適用を
+検証します。
+
 Optional Vite HMR for frontend work:
 
 ```bash
@@ -105,21 +118,20 @@ docker compose --profile dev up -d web-dev
 ### Step 4: Create an admin user
 
 1. Open [http://localhost/signup](http://localhost/signup) and create an account.
-2. Complete email verification if mail delivery is configured.
-   For a bare local stack without Mailgun / Email Sending, promote the account
+2. Complete email verification if Mailgun is configured.
+   For a bare local stack without Mailgun, promote the account
    (this also activates it):
 
 ```bash
-cd apps/api
 npm ci
-npm run user:superuser -- your-username-or-email
+npm run user:superuser --workspace @videoq/api -- your-username-or-email
 ```
 
 If a migrated local account reports `Password not found`, restore a local-only
 temporary password (the command prints it once):
 
 ```bash
-npm run user:password:local -- your-username-or-email
+npm run user:password:local --workspace @videoq/api -- your-username-or-email
 ```
 
 3. Log in at [http://localhost/login](http://localhost/login).
@@ -130,9 +142,6 @@ Open [http://localhost](http://localhost) in your browser.
 
 **Useful links:**
 - **Admin UI:** [http://localhost/admin](http://localhost/admin) for users, quotas, and reindex jobs
-- **Developer docs:** [http://localhost/docs](http://localhost/docs)
-- **OpenAPI (Scalar):** [http://localhost/api/docs](http://localhost/api/docs)
-- **ReDoc:** [http://localhost/api/redoc](http://localhost/api/redoc)
 - **MinIO console:** [http://localhost:9001](http://localhost:9001) (default `minioadmin` / `minioadmin`)
 
 **First steps:**
@@ -158,23 +167,22 @@ Use `null` or `unlimited` in those env vars for no cap. `0` is a hard zero quota
 
 **Local default:** Docker Compose starts MinIO and configures the API + worker to use it. Browser uploads go to `http://127.0.0.1:9000`.
 
-**Production:** Use Cloudflare R2 (or another S3-compatible store). Set the API secrets / vars described in [`infra/DEPLOY.md`](infra/DEPLOY.md), including `R2_*` credentials and `USE_S3_STORAGE=true` for the worker / frontend as needed.
+**Production:** Use Cloudflare R2 (or another S3-compatible store). Set the API secrets / vars described in [`infra/DEPLOY.md`](infra/DEPLOY.md), including `R2_*` credentials and `USE_S3_STORAGE=true` for the worker / frontend as needed. Browser uploads also require the versioned R2 CORS policy in `apps/api/r2-cors.production.json`.
 
 Example production-oriented values in `.env` / Worker secrets:
 
 ```bash
 USE_S3_STORAGE=true
-AWS_ACCESS_KEY_ID=your-key
-AWS_SECRET_ACCESS_KEY=your-secret
-AWS_STORAGE_BUCKET_NAME=your-bucket
-
-# AWS S3
-AWS_S3_REGION_NAME=ap-northeast-1
-
-# Cloudflare R2
-AWS_S3_ENDPOINT_URL=https://<account-id>.r2.cloudflarestorage.com
-AWS_S3_REGION_NAME=auto
+R2_ACCESS_KEY_ID=your-r2-access-key
+R2_SECRET_ACCESS_KEY=your-r2-secret-key
+R2_BUCKET_NAME=your-bucket
+R2_S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+R2_S3_REGION=auto
 ```
+
+Cloudflare API Worker内の`head` / `delete`は`VIDEO_BUCKET` bindingを使います。
+上のS3 API tokenはブラウザ用署名URLとAWS Lambda workerからR2へ接続するために必要です。
+Lambdaの実行環境では`AWS_ACCESS_KEY_ID`をR2キーとして使わないでください。
 
 Restart the worker after changing storage credentials:
 
@@ -324,46 +332,40 @@ Once DNS is active and ports 80/443 are externally reachable, Caddy obtains and 
 
 For the Cloudflare + Neon + R2 + Lambda production topology, see [`infra/DEPLOY.md`](infra/DEPLOY.md).
 
-<a id="developer-api"></a>
-
-## Developer API Integration
-
-VideoQ supports API key authentication for integrations, so you can use it from existing systems and batch jobs through server-to-server communication.
-
-Issue a `vq_...` integration key from **Settings → Integration API Keys**. Use the `X-API-Key` header for the REST API and `Authorization: Bearer <vq_...>` for the OpenAI-compatible API. For integration steps, authentication details, and endpoint-specific sample code in cURL / JavaScript / TypeScript / Python / Go / Java / C# / PHP / Ruby, see the in-app developer docs.
-
-- **Developer docs:** [http://localhost/docs](http://localhost/docs)
-- **OpenAPI (Scalar UI):** [http://localhost/api/docs](http://localhost/api/docs)
-- **OpenAPI JSON:** [http://localhost/api/openapi.json](http://localhost/api/openapi.json)
-- **ReDoc:** [http://localhost/api/redoc](http://localhost/api/redoc)
-
-API paths do not use trailing slashes (for example `/api/videos`, not `/api/videos/`).
-
 ## MCP (Model Context Protocol) Integration
 
-VideoQ exposes a built-in **analytics-only** remote MCP server at `/api/mcp` (Streamable HTTP via `@hono/mcp`). Any MCP client that speaks Streamable HTTP — Claude Code, Cursor, and any client that can launch `mcp-remote` — can connect with just a URL and an API key. No local process to install.
+VideoQ exposes a remote MCP server at `/api/mcp` (Streamable HTTP via `@hono/mcp`). Any MCP client that speaks Streamable HTTP — Claude Code, Cursor, and any client that can launch `mcp-remote` — can connect with just a URL and an API key. No local process to install.
 
-> 🛡️ **Design policy:** Sending RAG chat questions is intentionally excluded. MCP access is limited to **reading and analyzing existing data**. API keys need the **read** scope (`read_only` keys are accepted).
+> 🛡️ **Permission policy:** Read tools accept `read_only` API keys or OAuth tokens with `videoq.read`. Video upload and course management tools require an `all` API key or the OAuth `videoq.write` scope. Missing API-key permission metadata defaults to read-only. Sending RAG chat questions is intentionally excluded from MCP.
 
 ### Available tools
 
+VideoQ exposes 9 read-only tools and 5 write tools. The MCP metadata and tests enforce
+that split, including each tool's input/output schema and safety annotations.
+
 | Tool | Purpose |
 |---|---|
-| `list_videos` / `get_video` | List videos and view details (including transcripts) |
+| `list_videos` / `get_video` | List videos and view details (with opt-in, bounded transcript chunks) |
+| `request_video_upload` / `confirm_video_upload` | Upload a local video through a signed object-storage URL and start processing |
+| `create_youtube_video` | Register and import a YouTube lecture URL |
 | `list_courses` / `get_course` | List courses and their member videos |
+| `create_course` | Create a course |
+| `add_video_to_course` | Add an uploaded video to a course |
 | `list_tags` | List tags |
 | `get_chat_history` | Chat history for a course (with feedback) |
 | `get_chat_analytics` | Question counts, period, daily time series, feedback aggregates |
 | `get_evaluation_summary` | RAGAS average scores (faithfulness / answer_relevancy / context_precision) |
 | `list_evaluation_logs` | Per-log RAGAS scores |
 
-List tools support `limit` / `offset` pagination (default 20, maximum 100).
+List tools support `limit` / `offset` pagination. General lists default to 20 and allow at most 100 items; chat history and evaluation logs default to 10 and allow at most 25. `get_course` paginates member videos separately with `video_limit` / `video_offset`. `get_video` omits the transcript by default; request bounded chunks with `include_transcript`, `transcript_offset`, and `transcript_limit`.
+
+The three create/reserve tools (`request_video_upload`, `create_youtube_video`, and `create_course`) require an `idempotency_key`. Generate one stable value per logical operation and reuse it only when retrying the same arguments. Upload confirmation and course membership addition are also safe to retry.
 
 ### Setup
 
 #### Step 1: Issue an integration API key
 
-Log in to VideoQ and issue a `vq_...` key from **Settings → Integration API Keys**, then copy it. A `read_only` key is enough for MCP.
+Log in to VideoQ and issue a `vq_...` key from **Settings → Integration API Keys**, then copy it. Select `all` to upload videos or manage courses; `read_only` is enough for analytics.
 
 #### Step 2: Register the endpoint with your MCP client
 
@@ -382,7 +384,7 @@ For **Claude Desktop / claude.ai (built-in connector, OAuth 2.1)**, paste just t
 https://your-domain.example.com/api/mcp
 ```
 
-Behind the scenes the client discovers the authorization server via `/.well-known/oauth-protected-resource/api/mcp` and `/.well-known/oauth-authorization-server`, registers itself dynamically at `/api/oauth/register`, and runs the standard authorization-code flow with PKCE. You can revoke any granted token at any time from **Settings → Connected Apps**.
+Behind the scenes the client discovers the authorization server via `/.well-known/oauth-protected-resource/api/mcp` and `/.well-known/oauth-authorization-server`, registers itself dynamically at `/api/auth/oauth2/register`, and runs the standard authorization-code flow with PKCE. VideoQ advertises and enforces `videoq.read` / `videoq.write` scopes. You can revoke any granted token at any time from **Settings → Connected Apps**.
 
 For a self-hosted production instance, first complete the [Docker Compose HTTPS deployment](#https-deployment-with-docker-compose). The OAuth issuer must match the public HTTPS origin:
 
@@ -428,7 +430,9 @@ Config file locations:
 
 #### Step 3: Verify
 
-Restart the client and confirm that the MCP server appears as `videoq`. Try prompts like "Show the RAGAS evaluation summary for course 1" or "List my recent videos" to trigger the matching tools.
+Restart the client and confirm that the MCP server appears as `videoq`. Try prompts like "Create a course named Physics", "Upload lecture.mp4 and add it to the Physics course", or "Analyze the chat history for course 1".
+
+For a local file, Claude Code generates an idempotency key, calls `request_video_upload`, uploads the file with an HTTP `PUT` using the returned URL and required headers, and then calls `confirm_video_upload`. The video bytes do not pass through the Worker or MCP JSON payload. Retrying the prepare call after confirmation returns the current video state without minting an overwrite-capable PUT URL.
 
 ### Troubleshooting
 
@@ -439,9 +443,11 @@ Restart the client and confirm that the MCP server appears as `videoq`. Try prom
 ## Repository layout
 
 ```text
-apps/api/        Hono OpenAPI on Cloudflare Workers
+apps/api/        Hono + tRPC on Cloudflare Workers
+apps/web/        React SPA
 apps/worker/     Python async pipeline (SQS / Lambda)
-frontend/        React SPA
+packages/trpc/   Shared Hono ↔ React tRPC router and contract
+package.json     npm workspace root
 infra/           Terraform (SQS, Lambda, ECR, IAM) + deploy notes
 docs/            Architecture and design docs
 poc/             Spike / verification projects

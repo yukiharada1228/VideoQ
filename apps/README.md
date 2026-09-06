@@ -4,8 +4,17 @@ VideoQ の実行パッケージです。
 
 | ディレクトリ | 役割 | ランタイム |
 |---|---|---|
-| [`api/`](api/) | OpenAPI Web API | Hono / Cloudflare Workers |
+| [`api/`](api/) | tRPC API と protocol transport | Hono / Cloudflare Workers |
+| [`web/`](web/) | ブラウザアプリ | React / Vite |
 | [`worker/`](worker/) | 文字起こし・索引・PLOG・評価などの非同期処理 | Python / SQS Lambda |
+
+Node.js パッケージはリポジトリルートの npm workspace で管理します。
+
+```bash
+npm ci
+npm run dev:api
+npm run dev:web
+```
 
 ローカル全体起動:
 

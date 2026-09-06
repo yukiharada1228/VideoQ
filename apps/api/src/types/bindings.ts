@@ -41,7 +41,7 @@ export type Variables = {
   requestId: string;
   userId?: string;
   // 認証経路。share = 共有スラッグ経由の匿名アクセス。
-  authVia?: "apikey" | "bearer" | "share" | "oauth";
+  authVia?: "apikey" | "session" | "share" | "oauth";
   // API キー認証時の access_level（"all" | "read_only"）。scope 判定に使う。
   apiKeyAccessLevel?: string;
   // Share 認証時の share_slug（feedback 等の共有アクセス）。

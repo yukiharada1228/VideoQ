@@ -1,0 +1,18 @@
+import type { Context } from "hono";
+import * as billingService from "../../features/billing/service";
+import type { AppEnv } from "../../types/bindings";
+import { requireUserId, type HandlersFor } from "./shared";
+
+export function billingHandlers(
+  c: Context<AppEnv>,
+  authenticatedUserId: string | null,
+): HandlersFor<"billing"> {
+  const userId = () => requireUserId(authenticatedUserId);
+  return {
+    "billing.plans": () => billingService.listPlans(c.env),
+    "billing.checkout": ({ lookupKey, locale }) =>
+      billingService.createCheckoutSession(c.env, userId(), lookupKey, locale),
+    "billing.portal": ({ locale }) =>
+      billingService.createPortalSession(c.env, userId(), locale),
+  };
+}

@@ -1,21 +1,23 @@
 # データ辞書
 
-完全な型、default、constraint、index は
-`apps/api/src/db/schema/modern.ts` を正本とします。
+完全な型、default、constraint、index はdomain dataについて
+`apps/api/src/db/schema/modern.ts`、認証について
+`apps/api/src/db/schema/better-auth.ts`を正本とします。
 
 ## 認証
 
 | テーブル | 用途 |
 |---|---|
-| `users` | アカウント、password hash、quota、Stripe 課金、暗号化済み外部 key |
+| `users` | Better Auth user、quota、Stripe 課金、暗号化済み外部 key |
 | `stripe_events` | Stripe webhook の冪等（event id） |
-| `session (Better Auth)` | opaque refresh session の hash、family、期限、revoke |
-| `verification (Better Auth)` | メール確認・password reset・email change の一回限り token |
-| `api_keys` | integration key の hash、prefix、access level |
+| `session` | Better Auth cookie session と期限 |
+| `account` | credential password hash とGoogle等のprovider account |
+| `verification` | メール確認・password reset・email change の一回限り token |
+| `apikey` | MCP integration key のhash、prefix、accessLevel metadata |
+| `jwks` | OAuth access token署名用の鍵 |
 | `account_deletion_requests` | アカウント削除依頼 |
 
-`session (Better Auth).token_hash` と `verification (Better Auth).token_hash` は unique です。
-平文 refresh / action token は保存しません。
+認証テーブルの完全な列定義は `apps/api/src/db/schema/better-auth.ts` を正本とします。
 
 ## 動画・整理
 
@@ -53,12 +55,13 @@
 
 | テーブル | 用途 |
 |---|---|
-| `oauth_applications` | client metadata と credential |
-| `oauth_grants` | authorization code / grant |
-| `oauth_access_tokens` | opaque access token |
-| `oauth_refresh_tokens` | refresh token と rotation |
-| `oauth_id_tokens` | OIDC ID token |
-| `oauth_device_grants` | device authorization |
+| `oauth_client` | DCRで登録されたMCP client metadata |
+| `oauth_resource` | MCP resource identifier、scope policy、token TTL |
+| `oauth_client_resource` | clientとresource identifierの許可関係 |
+| `oauth_access_token` | resource-bound JWT access tokenの発行記録 |
+| `oauth_refresh_token` | refresh tokenとrotation/replay情報 |
+| `oauth_consent` | userがclientへ許可したscope/resource |
+| `oauth_client_assertion` | private_key_jwt assertionのreplay防止 |
 
 ## 共通規則
 

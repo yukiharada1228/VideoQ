@@ -2,25 +2,30 @@
 # Generate .dev.vars from compose env, then run wrangler on 0.0.0.0:8787.
 set -eu
 
-# Named volume for node_modules may be empty or stale vs package-lock.json.
+api_dir=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+workspace_root=$(CDPATH= cd -- "$api_dir/../.." && pwd)
+workspace_modules="$workspace_root/node_modules"
+workspace_lock="$workspace_root/package-lock.json"
+install_stamp="$workspace_modules/.videoq-package-lock"
+
+# Named volume for the workspace node_modules may be empty or stale.
 needs_npm_ci=0
-if [ ! -x node_modules/.bin/wrangler ]; then
+if [ ! -x "$workspace_modules/.bin/wrangler" ]; then
   needs_npm_ci=1
-elif [ ! -d node_modules/@hono/zod-openapi ] || [ ! -d node_modules/@scalar/hono-api-reference ]; then
+elif [ ! -d "$workspace_modules/@hono/trpc-server" ] \
+  || [ ! -d "$workspace_modules/@videoq/trpc" ]; then
   needs_npm_ci=1
-elif [ -f package-lock.json ] && [ -f node_modules/.package-lock.json ]; then
-  # Reinstall when lockfile changed since last npm ci into this volume.
-  if ! cmp -s package-lock.json node_modules/.package-lock.json 2>/dev/null; then
-    needs_npm_ci=1
-  fi
+elif [ ! -f "$install_stamp" ] \
+  || ! cmp -s "$workspace_lock" "$install_stamp" 2>/dev/null; then
+  needs_npm_ci=1
 fi
 if [ "$needs_npm_ci" -eq 1 ]; then
-  echo "Installing npm dependencies (npm ci)..."
-  npm ci
-  cp package-lock.json node_modules/.package-lock.json
+  echo "Installing API workspace dependencies (npm ci)..."
+  (cd "$workspace_root" && npm ci --workspace @videoq/api)
+  cp "$workspace_lock" "$install_stamp"
 fi
 
-cat > /app/.dev.vars <<EOF
+cat > "$api_dir/.dev.vars" <<EOF
 AUTH_JWT_SECRET=${AUTH_JWT_SECRET:-dev-only-auth-jwt-secret-change-me}
 USER_SECRET_ENCRYPTION_KEY=${USER_SECRET_ENCRYPTION_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA}
 OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -42,4 +47,5 @@ EOF
 
 export CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE="${CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE:-postgresql://postgres:postgres@postgres:5432/postgres}"
 
+cd "$api_dir"
 exec npx wrangler dev --ip 0.0.0.0 --port 8787 --local-protocol http

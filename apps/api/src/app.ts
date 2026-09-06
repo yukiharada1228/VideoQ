@@ -1,5 +1,7 @@
 import type { Context } from "hono";
-import { OpenAPIHono } from "@hono/zod-openapi";
+import { Hono } from "hono";
+import { trpcServer } from "@hono/trpc-server";
+import { TRPC_MAX_BATCH_SIZE } from "@videoq/trpc/schema";
 import type { AppEnv } from "./types/bindings";
 import { requestId } from "./middleware/request-id";
 import { accessLogger } from "./middleware/logger";
@@ -7,34 +9,28 @@ import { corsMiddleware } from "./middleware/cors";
 import { securityHeaders } from "./middleware/security-headers";
 import { onError } from "./middleware/error-handler";
 import { toErrorBody } from "./shared/errors";
-import { registerOpenApiDoc } from "./shared/openapi";
 import { healthRoutes } from "./features/health/routes";
-import { accountRoutes } from "./features/account/routes";
-import { courseRoutes } from "./features/courses/routes";
-import { courseMembershipRoutes } from "./features/course-memberships/routes";
-import { tagRoutes } from "./features/tags/routes";
-import { membershipRoutes } from "./features/membership/routes";
 import { videoRoutes } from "./features/videos/routes";
-import { chatCompletionsRoutes, chatRoutes } from "./features/chat/routes";
-import { evaluationRoutes } from "./features/evaluation/routes";
-import { plogRoutes } from "./features/plog/routes";
+import { chatRoutes } from "./features/chat/routes";
 import { mcpRoutes } from "./features/mcp/routes";
 import { mediaRoutes } from "./features/media/routes";
-import { adminRoutes } from "./features/admin/routes";
 import { billingRoutes } from "./features/billing/routes";
-import { schemaRoutes } from "./features/schema/routes";
 import { withDb } from "./db/pool";
 import { createAuth } from "./lib/auth";
+import { createTrpcContext } from "./trpc/context";
+import { appRouter } from "@videoq/trpc/router";
 import {
   oauthProviderAuthServerMetadata,
   oauthProviderOpenIdConfigMetadata,
 } from "@better-auth/oauth-provider";
+import { MCP_OAUTH_SCOPES } from "./lib/mcp-auth";
+import { limitChatTrpcRequestBody } from "./features/chat/body-limit";
 
 /**
  * Hono アプリの組み立て。認証は Better Auth (`/api/auth/*`)。
  */
 export function createApp() {
-  const app = new OpenAPIHono<AppEnv>();
+  const app = new Hono<AppEnv>();
 
   app.use("*", requestId);
   app.use("*", accessLogger);
@@ -45,7 +41,7 @@ export function createApp() {
 
   app.route("/", healthRoutes);
 
-  // Better Auth handler (sessions, email/password, API keys, OAuth AS, device).
+  // Better Auth handler (sessions, email/password, API keys, OAuth AS).
   app.on(["POST", "GET"], "/api/auth/*", async (c) => {
     return withDb(c.env, async (db) => {
       const auth = createAuth(c.env, db);
@@ -62,7 +58,7 @@ export function createApp() {
     });
   };
   app.get("/.well-known/oauth-authorization-server", authorizationServerMetadata);
-  // RFC 8414 issuer-path form. ChatGPT also probes /mcp and /api/mcp.
+  // RFC 8414 issuer-path forms used by MCP clients.
   app.get("/.well-known/oauth-authorization-server/api/auth", authorizationServerMetadata);
   app.get("/.well-known/oauth-authorization-server/mcp", authorizationServerMetadata);
   app.get("/.well-known/oauth-authorization-server/api/mcp", authorizationServerMetadata);
@@ -83,30 +79,30 @@ export function createApp() {
     return c.json({
       resource: `${site}/api/mcp`,
       authorization_servers: [`${site}/api/auth`],
-      scopes_supported: ["openid", "profile", "email", "offline_access"],
+      scopes_supported: [...MCP_OAUTH_SCOPES],
     });
   };
   app.get("/.well-known/oauth-protected-resource", protectedResourceMetadata);
   // RFC 9728 path form. MCP 401 の resource_metadata が指す先。
   app.get("/.well-known/oauth-protected-resource/api/mcp", protectedResourceMetadata);
 
-  app.route("/api/account", accountRoutes);
+  // All application JSON operations are exposed through tRPC.
+  app.use("/api/trpc/*", limitChatTrpcRequestBody);
+  app.use("/api/trpc/*", async (c, next) =>
+    trpcServer({
+      endpoint: "/api/trpc",
+      router: appRouter,
+      maxBatchSize: TRPC_MAX_BATCH_SIZE,
+      createContext: () => createTrpcContext(c),
+    })(c, next),
+  );
+
+  // Raw HTTP is reserved for protocol-specific transports and binary payloads.
   app.route("/api/billing", billingRoutes);
-  app.route("/api/videos", courseRoutes);
-  app.route("/api/videos", courseMembershipRoutes);
-  app.route("/api/videos", tagRoutes);
-  app.route("/api/videos", membershipRoutes);
-  app.route("/api/videos", plogRoutes);
   app.route("/api/videos", videoRoutes);
   app.route("/api/chat", chatRoutes);
-  app.route("/api/v1/chat", chatCompletionsRoutes);
-  app.route("/api/evaluation", evaluationRoutes);
   app.route("/api/mcp", mcpRoutes);
   app.route("/api/media", mediaRoutes);
-  app.route("/api/admin", adminRoutes);
-  app.route("/api", schemaRoutes);
-
-  registerOpenApiDoc(app);
 
   app.notFound((c) => c.json(toErrorBody("NOT_FOUND", "Not found"), 404));
 

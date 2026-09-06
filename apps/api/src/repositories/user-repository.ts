@@ -4,7 +4,7 @@ import { users } from "../db/schema";
 import type { Bindings } from "../types/bindings";
 
 /**
- * `/api/account/me` のレスポンスを組み立てる。
+ * `account.me` procedure のレスポンスを組み立てる。
  */
 export type CurrentUser = {
   id: string;
