@@ -4,39 +4,44 @@ VideoQ の Web API。Hono / TypeScript を Cloudflare Workers で実行します
 
 ## 構成
 
-`OpenAPIHono` をルートの正本とし、ドメインごとに次の責務へ分けています。
+通常の JSON API は `packages/trpc` の router を正本とし、API workspace は
+request context と service adapter を実装します。
 
 ```text
 src/
-├── app.ts                 # OpenAPIHono の組み立て
+├── app.ts                 # Hono、tRPC、raw transport の組み立て
 ├── index.ts               # fetch / scheduled entrypoint
+├── trpc/
+│   ├── context.ts         # request-scoped auth / procedure adapter
+│   └── handlers/          # domain service と procedure の接続
 ├── features/
 │   └── <domain>/
-│       ├── routes.ts      # createRoute、middleware、HTTP 入出力
-│       ├── schemas.ts     # Zod / OpenAPI schema
+│       ├── routes.ts      # protocol 固有 HTTP endpoint のみ
+│       ├── schemas.ts     # raw transport 用 Zod schema
 │       └── service.ts     # use case orchestration
 ├── repositories/          # Drizzle / SQL による永続化
 ├── db/schema/modern.ts    # runtime schema の正本
 ├── middleware/            # auth、CORS、error handling
-├── shared/                # error、pagination、OpenAPI、日時等
+├── shared/                # error、pagination、日時等
 └── lib/                   # JWT、password、OAuth、SQS、暗号等
 ```
 
-依存方向は `routes → service → repository` です。HTTP schema は
-`createRoute` から OpenAPI へ反映されます。
+依存方向は `tRPC router → Hono handler → service → repository` です。
+input validation と procedure 名は `packages/trpc/src/routers` に集約します。
 
 ## API 契約
 
+- endpoint: `/api/trpc`
 - 一覧: `{ data: T[], meta: { total, limit, offset } }`
-- 単体: `{ data: T }`
-- エラー: `{ error: { code, message, details? } }`
+- error data: tRPC code、HTTP status、`applicationCode?`、`details?`
 - 日時: UTC ISO-8601
-- URL: trailing slashなし
-- OpenAPI JSON: `/api/openapi.json`
-- Scalar UI: `/api/docs`
-- ReDoc: `/api/redoc`
 
-SSE、OAuth token response、OpenAI 互換 endpoint など、外部仕様で形が決まるものは例外です。
+Hono の raw route は Better Auth / OAuth discovery、Stripe webhook、MCP、health、
+media binary、multipart upload、chat SSE、CSV export に限定します。
+
+tRPC router の正本は [`packages/trpc`](../../packages/trpc/) にあり、
+Hono は既存 service を procedure context に接続します。REST/OpenAPI の JSON API と
+API reference UI は提供しません。
 
 ## 認証
 
@@ -53,13 +58,17 @@ Better Auth（`/api/auth/*`）が正本です。
 ### API key / OAuth
 
 - API key: `@better-auth/api-key`（prefix `vq_`、access level は metadata）
-- MCP / 第三者: `@better-auth/oauth-provider` + device authorization  
+- MCP / 第三者: `@better-auth/oauth-provider`
   （MCP 向けに unauthenticated DCR を許可。register は rate limit、confidential client の secret は 30 日で失効）
-- ドメイン API は session / API key / OAuth Bearer を `middleware/auth.ts` で解決
-- SPA の「ログイン済み」判定は Better Auth `useSession`。プロフィールは `/api/account/me`
+- Better Auth 1.7のprotected resourceを`/api/mcp`に固定する。1.7移行時は旧DCR clientと
+  tokenを失効させて再登録する。access tokenは15分、Bearer / DPoPの両方を検証する
+- tRPC とブラウザ向け raw route は Cookie session、MCP は API key / OAuth Bearer を使用
+- MCP OAuth は `videoq.read` / `videoq.write` を検証し、API key metadata 欠落時は read-only とする
+- MCP 作成系は `mcp_idempotency_records` で30日間冪等化し、tool単位の出力schema・安全性annotation・user単位rate limitを持つ
+- SPA の「ログイン済み」判定は Better Auth `useSession`。プロフィールは `account.me`
 - ユーザー ID は Better Auth 標準の text UUID（既存行も `0006_user_id_uuid` で UUID に付け替え。セッション / OAuth トークンは無効化）
   - スキーマ差分は `drizzle-kit generate`（`meta/0005_snapshot.json` → `0006_snapshot.json`）
-  - データ remap は custom SQL（再生成: `npm run db:generate:user-id-uuid`）
+  - データ remap は履歴上のDrizzle custom migration。適用済みのため再生成・編集しない
 
 ## 秘密情報の暗号化
 
@@ -78,13 +87,13 @@ Drizzle の modern schema を runtime の唯一のモデルとして使用しま
 
 主なテーブル群:
 
-- auth (Better Auth): `users` (text UUID PK), `session`, `account`, `verification`, `apikey`, `jwks`, `device_code`, `oauth_*`
+- auth (Better Auth): `users` (text UUID PK), `session`, `account`, `verification`, `apikey`, `jwks`, `oauth_*`
 - video: `videos`, `video_courses`, `video_course_members`, `tags`, `video_tags`
 - chat/evaluation: `chat_logs`, `chat_log_evaluations`, `course_evaluation_snapshots`
 - PLOG: `plog_*`, `learner_concept_states`
 - vector: `scene_embeddings`（workerはPGVectorStore、Hono検索は認可列付き直接SQL）
 
-管理 API（superuser）: `GET/PATCH /api/admin/users*`, `POST /api/admin/embeddings/reindex-all`。  
+管理 procedure（superuser）: `admin.listUsers`、`admin.patch*`、`admin.reindexAll`。
 フロントの `/admin` 画面から利用します。
 
 最初のスーパーユーザーは既存アカウントを昇格させます（ユーザー名・メールどちらでも可）:
@@ -100,10 +109,20 @@ npm run rate-limit:reset
 ```
 
 ```bash
-npm run db:generate
+npm run db:generate -- --name describe_the_schema_change
+npm run db:check
+npm run db:verify
 npm run db:migrate
 npm run db:studio
 ```
+
+`src/db/schema/`をスキーマの正本とし、DDL migrationは必ず
+`drizzle-kit generate`（上記`db:generate`）で作成します。生成されたSQL、snapshot、journalは
+手で編集しません。データbackfillなどDrizzle KitがDDLとして表現できない処理だけは、
+`npm run db:generate:custom -- --name describe_the_data_change`でDrizzle管理下のcustom migrationを
+作成し、先頭を`-- drizzle-kit:custom`にします。custom migrationへDDLを書かず、
+`drizzle-kit push`は共有環境・本番では使用しません。`db:verify`はjournalとの一対一、
+生成DDLとsnapshot差分の完全一致、custom migrationにDDLがないことを検査します。
 
 ## 非同期ジョブ
 
@@ -129,16 +148,33 @@ SQSへ配送します。`*/5 * * * *` のcronは、DB commit直後のプロセ�
 
 ## Cloudflare bindings
 
+本番Workerは`.github/workflows/cd.yml`から、`apps/api`をWranglerの
+working directoryとして`wrangler.jsonc`をdeployします。Pagesとは異なり、
+Cloudflare Dashboard側にrepositoryのルートディレクトリ設定はありません。
+
 | binding | 用途 |
 |---|---|
 | `HYPERDRIVE` | Neon PostgreSQL |
 | `VIDEO_BUCKET` | 動画・字幕・サムネイル |
 | `RATE_LIMITER` | 分散 rate limit |
 | `STUDY_SESSION` | 学習モードの一時状態（Durable Object） |
-| `EMAIL` | 認証メール |
 
 R2 の S3 互換 endpoint、SQS、LLM/embedding、OAuth issuer などは
 `wrangler.jsonc` と `.dev.vars.example` を参照してください。
+本番の認証・招待メールは `MAILGUN_API_KEY` を必須とします。Cloudflare Email Sendingと
+KVは使用しません。ローカルでメールを設定しない場合はREADMEの手順でaccountを昇格します。
+
+本番resourceの設定を同期・確認するコマンド:
+
+```bash
+npm run cf:hyperdrive:disable-cache
+npm run cf:hyperdrive:show
+npm run cf:r2-cors:apply
+npm run cf:r2-cors:list
+```
+
+R2 CORSの正本は `r2-cors.production.json` です。更新操作には通常のWorker deploy tokenとは
+分離した、Hyperdriveと対象R2 bucketだけを管理できるtokenを使います。
 
 ## 開発
 

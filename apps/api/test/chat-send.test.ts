@@ -1,6 +1,11 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
+import {
+  CHAT_REQUEST_MAX_BYTES,
+  TRPC_MAX_BATCH_SIZE,
+} from "@videoq/trpc/schema";
 import { chatRoutes } from "../src/features/chat/routes";
 import { signAccessToken } from "./helpers/auth";
+import { createApp } from "../src/app";
 
 /**
  * ルート全体（認証 → 検証 → course/quota → RAG → ChatLog → 応答）の結線テスト。
@@ -106,11 +111,55 @@ async function post(
     ...(opts.headers ?? {}),
   };
   if (opts.token) headers["X-VideoQ-Test-User-Id"] = String(opts.token).replace(/^test-user-/, "") || "00000000-0000-4000-8000-000000000005";
+  if (path === "/messages" || path.startsWith("/messages?")) {
+    const payload = body as Record<string, unknown>;
+    const query = new URL(path, "http://localhost").searchParams;
+    return createApp().request(
+      "/api/trpc/chat.send",
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          messages: payload.messages,
+          courseId: payload.course_id,
+          mode: payload.mode,
+          studySessionId: payload.study_session_id,
+          shareSlug: query.get("share_slug") ?? query.get("share_token") ?? undefined,
+        }),
+      },
+      { ...ENV, ...(opts.env ?? {}) } as never,
+    );
+  }
   return chatRoutes.request(
     path,
     { method: "POST", headers, body: JSON.stringify(body) },
     { ...ENV, ...(opts.env ?? {}) },
   );
+}
+
+async function trpcData<T>(response: Response): Promise<T> {
+  const payload = await response.json() as { result: { data: T } };
+  return payload.result.data;
+}
+
+async function trpcError(response: Response): Promise<{
+  code: string;
+  message: string;
+  details?: unknown;
+}> {
+  const payload = await response.json() as {
+    error: {
+      message: string;
+      data: { code: string; applicationCode?: string; details?: unknown };
+    };
+  };
+  return {
+    code: payload.error.data.applicationCode ?? payload.error.data.code,
+    message: payload.error.message,
+    ...(payload.error.data.details !== undefined
+      ? { details: payload.error.data.details }
+      : {}),
+  };
 }
 
 const OPENAI_ENV = { OPENAI_API_KEY: "sk-test", OPENAI_BASE_URL: "https://openai.test/v1" };
@@ -212,17 +261,88 @@ describe("POST /messages（非ストリーミング）", () => {
   it("バリデーション失敗は {error:{code,message,details}}", async () => {
     const res = await post("/messages", {}, { token: await accessToken() });
     expect(res.status).toBe(400);
-    const j = await res.json();
-    expect(j.error.code).toBe("VALIDATION_ERROR");
-    expect(j.error.details.messages).toBeTruthy();
+    const error = await trpcError(res);
+    expect(error.code).toBe("VALIDATION_ERROR");
+    expect((error.details as Record<string, unknown>).messages).toBeTruthy();
   });
 
   it("messages が空配列なら 400（Zod min(1)）", async () => {
     const res = await post("/messages", { messages: [] }, { token: await accessToken() });
     expect(res.status).toBe(400);
-    const j = await res.json();
-    expect(j.error.code).toBe("VALIDATION_ERROR");
-    expect(j.error.details.messages).toBeTruthy();
+    const error = await trpcError(res);
+    expect(error.code).toBe("VALIDATION_ERROR");
+    expect((error.details as Record<string, unknown>).messages).toBeTruthy();
+  });
+
+  it("body 上限を超えた入力は JSON parse・認証より前に 413 にする", async () => {
+    const res = await post("/messages", {
+      messages: [
+        { role: "user", content: "x".repeat(CHAT_REQUEST_MAX_BYTES + 1) },
+      ],
+    });
+
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message: `Chat request body must not exceed ${CHAT_REQUEST_MAX_BYTES} bytes.`,
+      },
+    });
+  });
+
+  it("percent-encoded comma の tRPC batch でも body 上限を回避できない", async () => {
+    const oversizedInput = {
+      messages: [
+        { role: "user", content: "x".repeat(CHAT_REQUEST_MAX_BYTES) },
+      ],
+    };
+    const res = await createApp().request(
+      "/api/trpc/chat.send%2Cchat.send?batch=1",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ 0: oversizedInput, 1: oversizedInput }),
+      },
+      ENV as never,
+    );
+
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message: `Chat request body must not exceed ${CHAT_REQUEST_MAX_BYTES} bytes.`,
+      },
+    });
+  });
+
+  it("tRPC batch の procedure 件数を制限する", async () => {
+    const batchSize = TRPC_MAX_BATCH_SIZE + 1;
+    const procedurePath = Array.from(
+      { length: batchSize },
+      () => "chat.send",
+    ).join(",");
+    const input = Object.fromEntries(
+      Array.from({ length: batchSize }, (_, index) => [
+        index,
+        { messages: [{ role: "user", content: "hi" }] },
+      ]),
+    );
+    const res = await createApp().request(
+      `/api/trpc/${procedurePath}?batch=1`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-VideoQ-Test-User-Id":
+            "00000000-0000-4000-8000-000000000005",
+        },
+        body: JSON.stringify(input),
+      },
+      ENV as never,
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain("Batch call exceeds maximum size");
   });
 
   it("mode=study は Worker 内 PLOG gateway（ready グラフ無しは 409 PLOG_NOT_READY）", async () => {
@@ -253,11 +373,9 @@ describe("POST /messages（非ストリーミング）", () => {
       },
     );
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({
-      error: {
-        code: "PLOG_NOT_READY",
-        message: "PLOG is not ready for this course's videos. Wait for build or rebuild.",
-      },
+    expect(await trpcError(res)).toEqual({
+      code: "PLOG_NOT_READY",
+      message: "PLOG is not ready for this course's videos. Wait for build or rebuild.",
     });
   });
 
@@ -274,7 +392,7 @@ describe("POST /messages（非ストリーミング）", () => {
     );
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
+    expect(await trpcData(res)).toEqual({
       role: "assistant",
       content: "Answer [1].",
       citations: [
@@ -369,8 +487,9 @@ describe("POST /messages（非ストリーミング）", () => {
       { token: await accessToken(), env: OPENAI_ENV },
     );
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({
-      error: { code: "VALIDATION_ERROR", message: "Course not found." },
+    expect(await trpcError(res)).toEqual({
+      code: "VALIDATION_ERROR",
+      message: "Course not found.",
     });
   });
 
@@ -390,11 +509,9 @@ describe("POST /messages（非ストリーミング）", () => {
       { token: await accessToken(), env: OPENAI_ENV },
     );
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({
-      error: {
-        code: "AI_ANSWERS_LIMIT_EXCEEDED",
-        message: "AI answers limit exceeded. Limit: 100.",
-      },
+    expect(await trpcError(res)).toEqual({
+      code: "AI_ANSWERS_LIMIT_EXCEEDED",
+      message: "AI answers limit exceeded. Limit: 100.",
     });
   });
 
@@ -414,11 +531,9 @@ describe("POST /messages（非ストリーミング）", () => {
       { token: await accessToken(), env: OPENAI_ENV },
     );
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({
-      error: {
-        code: "OVER_QUOTA",
-        message: "AI chat is unavailable: account storage is over the configured limit.",
-      },
+    expect(await trpcError(res)).toEqual({
+      code: "OVER_QUOTA",
+      message: "AI chat is unavailable: account storage is over the configured limit.",
     });
   });
 
@@ -430,8 +545,9 @@ describe("POST /messages（非ストリーミング）", () => {
       { token: await accessToken(), env: OPENAI_ENV },
     );
     expect(res.status).toBe(500);
-    expect(await res.json()).toEqual({
-      error: { code: "INTERNAL_ERROR", message: "An internal server error occurred." },
+    expect(await trpcError(res)).toEqual({
+      code: "INTERNAL_ERROR",
+      message: "An internal server error occurred.",
     });
     const release = calls.find((call) => call.sql.includes("GREATEST"))!;
     expect(release.args).toEqual([
@@ -462,17 +578,13 @@ describe("POST /messages（非ストリーミング）", () => {
 
   it("共有アクセス（share_slug）は course 所有者で処理し is_shared_origin=true で保存", async () => {
     stubOpenAi({});
-    const res = await chatRoutes.request(
+    const res = await post(
       "/messages?share_slug=abc123",
       {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          messages: [{ role: "user", content: "hi" }],
-          course_id: 3,
-        }),
+        messages: [{ role: "user", content: "hi" }],
+        course_id: 3,
       },
-      { ...ENV, ...OPENAI_ENV },
+      { env: { ...ENV, ...OPENAI_ENV } },
     );
     expect(res.status).toBe(200);
 
@@ -492,18 +604,15 @@ describe("POST /messages（非ストリーミング）", () => {
   });
 
   it("共有アクセスで course_id が無ければ 400", async () => {
-    const res = await chatRoutes.request(
+    const res = await post(
       "/messages?share_token=abc123",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: [{ role: "user", content: "hi" }] }),
-      },
-      { ...ENV, ...OPENAI_ENV },
+      { messages: [{ role: "user", content: "hi" }] },
+      { env: { ...ENV, ...OPENAI_ENV } },
     );
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({
-      error: { code: "VALIDATION_ERROR", message: "Course ID not specified." },
+    expect(await trpcError(res)).toEqual({
+      code: "VALIDATION_ERROR",
+      message: "Course ID not specified.",
     });
   });
 });
@@ -531,6 +640,22 @@ describe("POST /messages/stream（SSE）", () => {
     const j = await res.json();
     expect(j.error.code).toBe("VALIDATION_ERROR");
     expect(j.error.details.messages).toBeTruthy();
+  });
+
+  it("body 上限を超えた SSE 入力もストリーム開始前に 413 にする", async () => {
+    const res = await post("/messages/stream", {
+      messages: [
+        { role: "user", content: "x".repeat(CHAT_REQUEST_MAX_BYTES + 1) },
+      ],
+    });
+
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message: `Chat request body must not exceed ${CHAT_REQUEST_MAX_BYTES} bytes.`,
+      },
+    });
   });
 
   it("チャンク → done（citations 付き）の順で流す", async () => {

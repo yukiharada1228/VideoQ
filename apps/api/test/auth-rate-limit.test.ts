@@ -53,18 +53,9 @@ describe("Better Auth rate limit storage", () => {
     ).toBe(true);
   });
 
-  it("非原子的フォールバック経路でも同じ窓を読み書きする", async () => {
+  it("Better Auth 1.7 の原子的 consume 契約だけを公開する", () => {
     const storage = durableRateLimitStorage(ENV);
-    expect(await storage.get("1.2.3.4|/sign-in/email")).toBeNull();
-
-    await storage.set("1.2.3.4|/sign-in/email", {
-      key: "1.2.3.4|/sign-in/email",
-      count: 1,
-      lastRequest: Date.now(),
-    });
-    const snapshot = await storage.get("1.2.3.4|/sign-in/email");
-    expect(snapshot?.count).toBe(1);
-    expect(snapshot?.lastRequest).toBeGreaterThan(0);
+    expect(Object.keys(storage)).toEqual(["consume"]);
   });
 
   it("バックエンドが無い環境では fail closed する", async () => {
@@ -73,8 +64,8 @@ describe("Better Auth rate limit storage", () => {
     expect((await storage.consume!("1.2.3.4|/sign-in/email", RULE)).allowed).toBe(
       false,
     );
-    expect((await storage.get("1.2.3.4|/sign-in/email"))?.count).toBe(
-      Number.MAX_SAFE_INTEGER,
-    );
+    expect(
+      (await storage.consume!("1.2.3.4|/sign-in/email", RULE)).retryAfter,
+    ).toBeGreaterThanOrEqual(1);
   });
 });

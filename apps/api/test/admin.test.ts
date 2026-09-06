@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { adminRoutes } from "../src/features/admin/routes";
-import { signAccessToken } from "./helpers/auth";
+import { requestTrpc, trpcData } from "./helpers/trpc";
 
 import {
   executeFakePgQuery,
@@ -45,10 +44,6 @@ const ENV = {
   HYPERDRIVE: { connectionString: "postgres://fake/db" },
 } as unknown as Record<string, unknown>;
 
-async function token(userId = "00000000-0000-4000-8000-000000000001") {
-  return signAccessToken(SECRET, userId);
-}
-
 beforeEach(() => {
   calls.length = 0;
   enqueueAll.mockReset().mockResolvedValue("job-abc");
@@ -84,8 +79,34 @@ beforeEach(() => {
   };
 });
 
-const req = (path: string, init: RequestInit = {}) =>
-  adminRoutes.request(path, init, ENV);
+const req = (path: string, init: RequestInit = {}) => {
+  const url = new URL(path, "http://localhost");
+  const body = init.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
+  const headers = { headers: init.headers };
+  if (url.pathname === "/users" && (init.method ?? "GET") === "GET") {
+    return requestTrpc("admin.listUsers", "query", {
+      q: url.searchParams.get("q") ?? undefined,
+      limit: 100,
+      offset: 0,
+    }, headers, ENV);
+  }
+  if (url.pathname === "/embeddings/reindex-all") {
+    return requestTrpc("admin.reindexAll", "mutation", undefined, headers, ENV);
+  }
+  const match = url.pathname.match(/^\/users\/([^/]+)(?:\/(quota|usage|flags))?$/);
+  if (!match) throw new Error(`Unmapped admin test path: ${path}`);
+  const [, id, action] = match;
+  if (action === "quota") {
+    return requestTrpc("admin.patchQuota", "mutation", { id, ...body }, headers, ENV);
+  }
+  if (action === "usage") {
+    return requestTrpc("admin.patchUsage", "mutation", { id, ...body }, headers, ENV);
+  }
+  if (action === "flags") {
+    return requestTrpc("admin.patchFlags", "mutation", { id, ...body }, headers, ENV);
+  }
+  return requestTrpc("admin.deleteUser", "mutation", { id }, headers, ENV);
+};
 
 describe("admin API", () => {
   it("非 superuser は 403", async () => {
@@ -104,7 +125,7 @@ describe("admin API", () => {
       headers: { "X-VideoQ-Test-User-Id": "00000000-0000-4000-8000-000000000001" },
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { meta: { total: number }; data: { id: number }[] };
+    const body = await trpcData<{ meta: { total: number }; data: { id: string }[] }>(res);
     expect(body.meta.total).toBe(1);
     expect(body.data[0].id).toBe("00000000-0000-4000-8000-000000000009");
   });
@@ -179,8 +200,8 @@ describe("admin API", () => {
       method: "POST",
       headers: { "X-VideoQ-Test-User-Id": "00000000-0000-4000-8000-000000000001" },
     });
-    expect(res.status).toBe(202);
-    expect(await res.json()).toEqual({ job_id: "job-abc" });
+    expect(res.status).toBe(200);
+    expect(await trpcData(res)).toEqual({ job_id: "job-abc" });
     expect(enqueueAll).toHaveBeenCalled();
   });
 
@@ -189,8 +210,8 @@ describe("admin API", () => {
       method: "DELETE",
       headers: { "X-VideoQ-Test-User-Id": "00000000-0000-4000-8000-000000000001" },
     });
-    expect(res.status).toBe(202);
-    const body = (await res.json()) as { job_id: string };
+    expect(res.status).toBe(200);
+    const body = await trpcData<{ job_id: string }>(res);
     expect(body.job_id).toMatch(/[0-9a-f-]{36}/);
     expect(processExternalTask).toHaveBeenCalledWith(ENV, 73);
     expect(calls.some((c) => c.sql.includes("UPDATE") && c.sql.includes("users"))).toBe(
@@ -234,8 +255,8 @@ describe("admin API", () => {
       method: "DELETE",
       headers: { "X-VideoQ-Test-User-Id": "00000000-0000-4000-8000-000000000001" },
     });
-    expect(res.status).toBe(202);
-    const body = (await res.json()) as { job_id: string };
+    expect(res.status).toBe(200);
+    const body = await trpcData<{ job_id: string }>(res);
     expect(body.job_id).toMatch(/[0-9a-f-]{36}/);
     expect(
       calls.some(

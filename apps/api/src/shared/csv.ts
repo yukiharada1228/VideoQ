@@ -1,9 +1,18 @@
 import type { ChatHistoryExportRow } from "../repositories/chat-repository";
 
 const NEEDS_QUOTE = /[",\r\n]/;
+const SPREADSHEET_FORMULA_PREFIX = /^(?:[=+\-@\t\r\n]|\s+[=+\-@])/u;
+
+/** Prevent spreadsheet programs from evaluating untrusted cells as formulas. */
+export function neutralizeSpreadsheetFormula(value: string): string {
+  return SPREADSHEET_FORMULA_PREFIX.test(value) ? `'${value}` : value;
+}
 
 export function csvField(value: string): string {
-  return NEEDS_QUOTE.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+  const safeValue = neutralizeSpreadsheetFormula(value);
+  return NEEDS_QUOTE.test(safeValue)
+    ? `"${safeValue.replaceAll('"', '""')}"`
+    : safeValue;
 }
 
 export function csvRow(fields: readonly string[]): string {
@@ -14,32 +23,72 @@ export function csvDocument(rows: readonly (readonly string[])[]): string {
   return rows.map(csvRow).join("");
 }
 
+const CHAT_HISTORY_HEADER = csvRow([
+  "created_at",
+  "asked_by_user_id",
+  "asked_by_username",
+  "asked_by_email",
+  "question",
+  "answer",
+  "is_shared_origin",
+  "citations",
+  "feedback",
+]);
+
+export function chatHistoryCsvRow(row: ChatHistoryExportRow): string {
+  return csvRow([
+    row.created_at,
+    row.asked_by?.user_id ?? "",
+    row.asked_by?.username ?? "",
+    row.asked_by?.email ?? "",
+    row.question,
+    row.answer,
+    row.is_shared_origin ? "true" : "false",
+    JSON.stringify(row.citations),
+    row.feedback ?? "",
+  ]);
+}
+
 /** RFC 4180 chat-history export with native JSON in the citations field. */
 export function buildChatHistoryCsv(
   rows: readonly ChatHistoryExportRow[],
 ): string {
-  return csvDocument([
-    [
-      "created_at",
-      "asked_by_user_id",
-      "asked_by_username",
-      "asked_by_email",
-      "question",
-      "answer",
-      "is_shared_origin",
-      "citations",
-      "feedback",
-    ],
-    ...rows.map((r) => [
-      r.created_at,
-      r.asked_by?.user_id ?? "",
-      r.asked_by?.username ?? "",
-      r.asked_by?.email ?? "",
-      r.question,
-      r.answer,
-      r.is_shared_origin ? "true" : "false",
-      JSON.stringify(r.citations),
-      r.feedback ?? "",
-    ]),
-  ]);
+  return CHAT_HISTORY_HEADER + rows.map(chatHistoryCsvRow).join("");
+}
+
+/** Encode one CSV row per pull so history size never determines Worker memory use. */
+export function streamChatHistoryCsv(
+  rows: AsyncIterable<ChatHistoryExportRow>,
+): ReadableStream<Uint8Array> {
+  const iterator = rows[Symbol.asyncIterator]();
+  const encoder = new TextEncoder();
+  let headerPending = true;
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (headerPending) {
+        headerPending = false;
+        controller.enqueue(encoder.encode(CHAT_HISTORY_HEADER));
+        return;
+      }
+      try {
+        const result = await iterator.next();
+        if (result.done) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(encoder.encode(chatHistoryCsvRow(result.value)));
+      } catch (error) {
+        try {
+          await iterator.return?.();
+        } catch {
+          // Preserve the original stream error.
+        }
+        controller.error(error);
+      }
+    },
+    async cancel() {
+      await iterator.return?.();
+    },
+  });
 }

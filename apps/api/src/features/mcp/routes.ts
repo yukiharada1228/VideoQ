@@ -1,13 +1,15 @@
 import type { Context } from "hono";
+import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { StreamableHTTPTransport } from "@hono/mcp";
 import {
   oauthBearerMethod,
   bearerApiKeyMethod,
   apiKeyMethod,
+  isScopeAllowed,
   requireScope,
 } from "../../middleware/auth";
-import { createFeatureRouter } from "../../shared/openapi";
+import { MCP_READ_SCOPE } from "../../lib/mcp-auth";
 import { toErrorBody } from "../../shared/errors";
 import type { AppEnv } from "../../types/bindings";
 import { createVideoqMcpServer } from "./server";
@@ -15,16 +17,20 @@ import { createVideoqMcpServer } from "./server";
 /**
  * MCP Streamable HTTP（@hono/mcp）。
  * 認証順: OAuth Bearer → Bearer API キー → X-API-Key/ApiKey。
- * analytics-only のため API キースコープは read。
+ * 読み取りツールは read_only キーでも利用でき、書き込みツールは個別に拒否する。
  */
-export const mcpRoutes = createFeatureRouter();
+export const mcpRoutes = new Hono<AppEnv>();
 
-function mcpWwwAuthenticate(c: Context<AppEnv>): string {
+function mcpWwwAuthenticate(
+  c: Context<AppEnv>,
+  error?: "insufficient_scope",
+): string {
   const issuer = (
     c.env.OAUTH_ISSUER_URL || new URL(c.req.url).origin
   ).replace(/\/$/, "");
   const meta = `${issuer}/.well-known/oauth-protected-resource/api/mcp`;
-  return `Bearer realm="api",resource_metadata="${meta}"`;
+  const challenge = `Bearer realm="api",resource_metadata="${meta}",scope="${MCP_READ_SCOPE}"`;
+  return error ? `${challenge},error="${error}"` : challenge;
 }
 
 const mcpAuth = createMiddleware<AppEnv>(async (c, next) => {
@@ -39,6 +45,11 @@ const mcpAuth = createMiddleware<AppEnv>(async (c, next) => {
     if (r.kind === "invalid") {
       return c.json(toErrorBody("UNAUTHORIZED", r.message), 401, {
         "WWW-Authenticate": mcpWwwAuthenticate(c),
+      });
+    }
+    if (r.kind === "forbidden") {
+      return c.json(toErrorBody("FORBIDDEN", r.message), 403, {
+        "WWW-Authenticate": mcpWwwAuthenticate(c, "insufficient_scope"),
       });
     }
   }
@@ -78,6 +89,9 @@ mcpRoutes.all("/", async (c) => {
   const server = createVideoqMcpServer({
     env: c.env,
     userId: c.var.userId!,
+    authVia: c.var.authVia,
+    requestId: c.var.requestId,
+    canWrite: isScopeAllowed(c.var.apiKeyAccessLevel ?? "", "write"),
   });
   await server.connect(transport);
   return transport.handleRequest(c);

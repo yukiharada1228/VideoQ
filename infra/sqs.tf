@@ -4,6 +4,10 @@ resource "aws_sqs_queue" "dlq" {
   name                      = local.names.worker_dlq
   message_retention_seconds = 1209600 # 14 days
   sqs_managed_sse_enabled   = true
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # ── Main worker queue ───────────────────────────────────────────────────
@@ -21,4 +25,8 @@ resource "aws_sqs_queue" "main" {
     deadLetterTargetArn = aws_sqs_queue.dlq.arn
     maxReceiveCount     = var.sqs_max_receive_count
   })
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }

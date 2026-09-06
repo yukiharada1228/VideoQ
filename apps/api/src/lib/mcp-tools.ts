@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { videoSourceTypeSchema, videoStatusSchema } from "@videoq/trpc";
 import type { Bindings } from "../types/bindings";
 import { listVideosPage, getVideoDetail } from "../repositories/video-repository";
 import { listCoursesPage, getCourseDetail } from "../repositories/course-repository";
@@ -11,6 +12,10 @@ import {
   getEvaluationSummary,
   listEvaluationLogs,
 } from "../repositories/evaluation-repository";
+import * as courseService from "../features/courses/service";
+import * as membershipService from "../features/membership/service";
+import * as videoService from "../features/videos/service";
+import type { CreationIdempotency } from "../repositories/mcp-idempotency-repository";
 
 /** MCP tool レベルのエラー（`isError: true` としてクライアントへ返す）。 */
 export class McpToolError extends Error {
@@ -26,30 +31,53 @@ type Json = Record<string, unknown>;
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+const CHAT_DEFAULT_LIMIT = 10;
+const CHAT_MAX_LIMIT = 25;
+const TRANSCRIPT_DEFAULT_LIMIT = 8_000;
+const TRANSCRIPT_MAX_LIMIT = 20_000;
 
-const intId = z.coerce.number().int();
+const intId = z.coerce.number().int().positive().safe();
+const description = z.string().max(10_000).optional();
+const idempotencyKey = z
+  .string()
+  .trim()
+  .min(8)
+  .max(128)
+  .regex(/^[A-Za-z0-9._:-]+$/)
+  .describe(
+    "Stable unique key for this logical operation. Reuse it only when retrying the same input.",
+  );
 
-const paginationShape = {
-  limit: z.coerce
-    .number()
-    .int()
-    .min(1)
-    .max(MAX_LIMIT)
-    .optional()
-    .describe(`Max items to return (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT}).`),
-  offset: z.coerce
-    .number()
-    .int()
-    .min(0)
-    .optional()
-    .describe("Number of items to skip."),
-};
+function paginationShape(defaultLimit: number, maxLimit: number) {
+  return {
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(maxLimit)
+      .optional()
+      .describe(`Max items to return (default ${defaultLimit}, max ${maxLimit}).`),
+    offset: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe("Number of items to skip."),
+  };
+}
 
-function normalizePagination(arguments_: Json): { limit: number; offset: number } {
+const listPaginationShape = paginationShape(DEFAULT_LIMIT, MAX_LIMIT);
+const chatPaginationShape = paginationShape(CHAT_DEFAULT_LIMIT, CHAT_MAX_LIMIT);
+
+function normalizePagination(
+  arguments_: Json,
+  defaultLimit = DEFAULT_LIMIT,
+  maxLimit = MAX_LIMIT,
+): { limit: number; offset: number } {
   const rawLimit = arguments_.limit;
-  let limit = rawLimit === undefined || rawLimit === null ? DEFAULT_LIMIT : Number(rawLimit);
-  if (!Number.isFinite(limit)) limit = DEFAULT_LIMIT;
-  limit = Math.max(1, Math.min(Math.trunc(limit), MAX_LIMIT));
+  let limit = rawLimit === undefined || rawLimit === null ? defaultLimit : Number(rawLimit);
+  if (!Number.isFinite(limit)) limit = defaultLimit;
+  limit = Math.max(1, Math.min(Math.trunc(limit), maxLimit));
   let offset = Number(arguments_.offset ?? 0);
   if (!Number.isFinite(offset)) offset = 0;
   offset = Math.max(0, Math.trunc(offset));
@@ -64,23 +92,38 @@ function envelope(
   offset: number,
 ): Json {
   return {
-    meta: { total: count, limit, offset },
+    meta: {
+      total: count,
+      limit,
+      offset,
+      has_more: offset + items.length < count,
+      next_offset: offset + items.length < count ? offset + items.length : null,
+    },
     [itemsKey]: items,
-    data: items,
   };
 }
 
 export type McpToolCallContext = {
   env: Bindings;
   userId: string;
+  canWrite: boolean;
+  authVia?: string;
+  requestId?: string;
 };
 
 /** Zod input shapes for `McpServer.registerTool`. */
 export const mcpToolSchemas = {
   list_videos: {
-    q: z.string().optional(),
+    q: z.string().max(255).optional(),
     status: z
-      .enum(["pending", "processing", "indexing", "completed", "error"])
+      .enum([
+        "uploading",
+        "pending",
+        "processing",
+        "indexing",
+        "completed",
+        "error",
+      ])
       .optional(),
     ordering: z
       .enum([
@@ -90,24 +133,61 @@ export const mcpToolSchemas = {
         "title_desc",
       ])
       .optional(),
-    tags: z.array(intId).optional(),
-    ...paginationShape,
+    tags: z.array(intId).max(100).optional(),
+    ...listPaginationShape,
   },
   get_video: {
     video_id: intId,
+    include_transcript: z.boolean().optional().default(false),
+    transcript_offset: z.coerce.number().int().min(0).optional().default(0),
+    transcript_limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(TRANSCRIPT_MAX_LIMIT)
+      .optional()
+      .default(TRANSCRIPT_DEFAULT_LIMIT),
+  },
+  request_video_upload: {
+    idempotency_key: idempotencyKey,
+    filename: z.string().trim().min(1).max(255),
+    content_type: z.string().trim().min(1).max(100),
+    file_size: z.coerce.number().int().positive().safe(),
+    title: z.string().trim().min(1).max(255),
+    description,
+  },
+  confirm_video_upload: {
+    video_id: intId,
+  },
+  create_youtube_video: {
+    idempotency_key: idempotencyKey,
+    youtube_url: z.string().trim().url().max(200),
+    title: z.string().trim().min(1).max(255),
+    description,
   },
   list_courses: {
-    ...paginationShape,
+    ...listPaginationShape,
   },
   get_course: {
     course_id: intId,
+    video_limit: z.coerce.number().int().min(1).max(50).optional().default(20),
+    video_offset: z.coerce.number().int().min(0).optional().default(0),
+  },
+  create_course: {
+    idempotency_key: idempotencyKey,
+    name: z.string().trim().min(1).max(255),
+    description,
+  },
+  add_video_to_course: {
+    course_id: intId,
+    video_id: intId,
   },
   list_tags: {
-    ...paginationShape,
+    ...listPaginationShape,
   },
   get_chat_history: {
     course_id: intId,
-    ...paginationShape,
+    ...chatPaginationShape,
   },
   get_chat_analytics: {
     course_id: intId,
@@ -117,21 +197,238 @@ export const mcpToolSchemas = {
   },
   list_evaluation_logs: {
     course_id: intId,
-    ...paginationShape,
+    ...chatPaginationShape,
   },
 } as const;
+
+export type McpToolName = keyof typeof mcpToolSchemas;
+
+const pageMeta = z.object({
+  total: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  offset: z.number().int().nonnegative(),
+  has_more: z.boolean(),
+  next_offset: z.number().int().nonnegative().nullable(),
+});
+
+const videoTag = z.object({
+  id: z.number().int().positive(),
+  name: z.string(),
+  color: z.string(),
+});
+
+const transcriptChunk = z.object({
+  text: z.string(),
+  offset: z.number().int().nonnegative(),
+  returned_chars: z.number().int().nonnegative(),
+  total_chars: z.number().int().nonnegative(),
+  has_more: z.boolean(),
+  next_offset: z.number().int().nonnegative().nullable(),
+});
+
+/**
+ * MCP deliberately omits `file`, `user`, and the unbounded transcript string.
+ * Detail responses may expose a bounded transcript chunk and transcript metadata.
+ */
+const compactVideoOutput = z.object({
+  id: z.number().int().positive(),
+  title: z.string(),
+  description: z.string(),
+  uploaded_at: z.string(),
+  status: videoStatusSchema,
+  source_type: videoSourceTypeSchema,
+  source_url: z.string().nullable(),
+  youtube_video_id: z.string().nullable(),
+  youtube_embed_url: z.string().nullable(),
+  tags: z.array(videoTag),
+  error_message: z.string().nullable().optional(),
+  transcript_available: z.boolean().optional(),
+  transcript_total_chars: z.number().int().nonnegative().optional(),
+  transcript: transcriptChunk.optional(),
+});
+
+const courseListItem = z.object({
+  id: z.number().int().positive(),
+  name: z.string(),
+  description: z.string(),
+  display_order: z.number().int(),
+  created_at: z.string(),
+  video_count: z.number().int().nonnegative(),
+  access_role: z.enum(["owner", "member"]),
+});
+
+const courseDetail = z.object({
+  id: z.number().int().positive(),
+  name: z.string(),
+  description: z.string(),
+  display_order: z.number().int(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  video_count: z.number().int().nonnegative(),
+  share_slug: z.string().nullable(),
+  access_role: z.enum(["owner", "member", "public"]),
+  videos: z.array(compactVideoOutput.extend({ order: z.number().int() })),
+});
+
+const tagListItem = z.object({
+  id: z.number().int().positive(),
+  name: z.string(),
+  color: z.string(),
+  created_at: z.string(),
+  video_count: z.number().int().nonnegative(),
+});
+
+const citation = z.object({
+  id: z.number().int().positive(),
+  video_id: z.number().int().positive(),
+  title: z.string(),
+  start_time: z.string().nullable(),
+  end_time: z.string().nullable(),
+});
+
+const chatHistoryItem = z.object({
+  id: z.number().int().positive(),
+  course: z.number().int().positive(),
+  asked_by: z.object({
+    user_id: z.string(),
+    username: z.string(),
+    email: z.string(),
+  }).nullable(),
+  question: z.string(),
+  answer: z.string(),
+  citations: z.array(citation),
+  is_shared_origin: z.boolean(),
+  feedback: z.enum(["good", "bad"]).nullable(),
+  created_at: z.string(),
+});
+
+const chatAnalytics = z.object({
+  summary: z.object({
+    total_questions: z.number().int().nonnegative(),
+    date_range: z.object({
+      first: z.string().nullable(),
+      last: z.string().nullable(),
+    }),
+  }),
+  time_series: z.array(z.object({
+    date: z.string(),
+    count: z.number().int().nonnegative(),
+  })),
+  feedback: z.object({
+    good: z.number().int().nonnegative(),
+    bad: z.number().int().nonnegative(),
+    none: z.number().int().nonnegative(),
+  }),
+});
+
+const evaluationSummary = z.object({
+  course_id: z.number().int().positive(),
+  evaluated_count: z.number().int().nonnegative(),
+  avg_faithfulness: z.number().finite().nullable(),
+  avg_answer_relevancy: z.number().finite().nullable(),
+  avg_context_precision: z.number().finite().nullable(),
+});
+
+const evaluationLog = z.object({
+  chat_log_id: z.number().int().positive(),
+  status: z.enum(["pending", "completed", "failed"]),
+  faithfulness: z.number().finite().nullable(),
+  answer_relevancy: z.number().finite().nullable(),
+  context_precision: z.number().finite().nullable(),
+  error_message: z.string(),
+  evaluated_at: z.string().nullable(),
+});
+
+/** Successful structuredContent contracts. Tool errors use their own error envelope. */
+export const mcpToolOutputSchemas = {
+  list_videos: { meta: pageMeta, videos: z.array(compactVideoOutput) },
+  get_video: { video: compactVideoOutput },
+  request_video_upload: {
+    video: compactVideoOutput,
+    reused: z.boolean(),
+    already_confirmed: z.boolean(),
+    upload: z.object({
+      method: z.literal("PUT"),
+      url: z.string().url(),
+      headers: z.record(z.string(), z.string()),
+      expires_in_seconds: z.number().int().positive(),
+    }).nullable(),
+    next_step: z.object({
+      tool: z.literal("confirm_video_upload"),
+      arguments: z.object({ video_id: z.number().int().positive() }),
+    }).nullable(),
+  },
+  confirm_video_upload: { video: compactVideoOutput, reused: z.boolean() },
+  create_youtube_video: { video: compactVideoOutput, reused: z.boolean() },
+  list_courses: { meta: pageMeta, courses: z.array(courseListItem) },
+  get_course: { course: courseDetail, videos_meta: pageMeta },
+  create_course: { course: courseDetail, reused: z.boolean() },
+  add_video_to_course: {
+    result: z.object({
+      ok: z.literal(true),
+      message: z.string(),
+      id: z.number().int().positive(),
+      reused: z.boolean(),
+    }),
+  },
+  list_tags: { meta: pageMeta, tags: z.array(tagListItem) },
+  get_chat_history: { meta: pageMeta, history: z.array(chatHistoryItem) },
+  get_chat_analytics: { analytics: chatAnalytics },
+  get_evaluation_summary: { summary: evaluationSummary },
+  list_evaluation_logs: { meta: pageMeta, logs: z.array(evaluationLog) },
+} as const;
+
+export const MCP_WRITE_TOOLS = new Set<McpToolName>([
+  "request_video_upload",
+  "confirm_video_upload",
+  "create_youtube_video",
+  "create_course",
+  "add_video_to_course",
+]);
+
+export const MCP_TOOL_TITLES: Record<McpToolName, string> = {
+  list_videos: "List videos",
+  get_video: "Get video details",
+  request_video_upload: "Prepare video upload",
+  confirm_video_upload: "Confirm video upload",
+  create_youtube_video: "Import YouTube video",
+  list_courses: "List courses",
+  get_course: "Get course details",
+  create_course: "Create course",
+  add_video_to_course: "Add video to course",
+  list_tags: "List tags",
+  get_chat_history: "Get chat history",
+  get_chat_analytics: "Get chat analytics",
+  get_evaluation_summary: "Get evaluation summary",
+  list_evaluation_logs: "List evaluation logs",
+};
 
 export const MCP_TOOL_DESCRIPTIONS = {
   list_videos:
     "List your videos. Supports keyword, status, ordering, tag filters, " +
-    "and limit/offset pagination. Returns count/next/previous/videos.",
-  get_video: "Get a video's detail by ID, including transcript when available.",
+    "and bounded limit/offset pagination. Download URLs are omitted.",
+  get_video:
+    "Get compact video details. Set include_transcript=true to receive one bounded " +
+    "transcript chunk; continue with transcript_offset when has_more is true.",
+  request_video_upload:
+    "Idempotently reserve storage and create a video upload. Returns a signed PUT URL, " +
+    "required headers, and the confirm_video_upload arguments. Upload the local " +
+    "file to that URL before confirming. A retry after confirmation reports the current " +
+    "video state without issuing another PUT URL.",
+  confirm_video_upload:
+    "Confirm that a file was uploaded with request_video_upload and start processing it.",
+  create_youtube_video:
+    "Idempotently register a YouTube video by URL and start importing it into VideoQ.",
   list_courses: "List your video courses. Supports limit/offset pagination.",
-  get_course: "Get a video course's detail and its member videos.",
+  get_course:
+    "Get a video course and a bounded page of member videos. Use video_limit/video_offset to continue.",
+  create_course: "Idempotently create a video course owned by the authenticated user.",
+  add_video_to_course:
+    "Idempotently add one of the authenticated user's videos to a course they own.",
   list_tags: "List your tags. Supports limit/offset pagination.",
   get_chat_history:
-    "Get chat history for a course. Each entry includes role, content, " +
-    "feedback (good/bad/null), citations, and timestamps. " +
+    "Get chat history for an owned course. Each entry includes question, answer, " +
+    "author, feedback (good/bad/null), citations, and timestamps. " +
     "Supports limit/offset pagination.",
   get_chat_analytics:
     "Get aggregated chat analytics for a course: total question count, " +
@@ -146,7 +443,79 @@ export const MCP_TOOL_DESCRIPTIONS = {
     "Supports limit/offset pagination.",
 } as const;
 
-export type McpToolName = keyof typeof mcpToolSchemas;
+function requireWrite(ctx: McpToolCallContext): void {
+  if (!ctx.canWrite) {
+    throw new McpToolError("Write permission is required for this tool.", {
+      status: 403,
+      code: "FORBIDDEN",
+    });
+  }
+}
+
+function firstFieldError(fieldError: Record<string, readonly string[]> | undefined): string {
+  return fieldError ? Object.values(fieldError)[0]?.[0] ?? "Invalid input" : "Invalid input";
+}
+
+function validateToolArguments(name: string, arguments_: Json): Json {
+  const shape = mcpToolSchemas[name as McpToolName];
+  if (!shape) throw new McpToolError(`Unknown tool: ${name}`);
+  const parsed = z.strictObject(shape).safeParse(arguments_);
+  if (!parsed.success) {
+    throw new McpToolError(`Invalid arguments for ${name}.`, {
+      status: 400,
+      code: "VALIDATION_ERROR",
+      details: z.flattenError(parsed.error).fieldErrors,
+    });
+  }
+  return parsed.data as Json;
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+async function creationIdempotency(
+  action: CreationIdempotency["action"],
+  key: unknown,
+  payload: Json,
+): Promise<CreationIdempotency> {
+  return {
+    action,
+    key: String(key),
+    requestHash: await sha256Hex(JSON.stringify(payload)),
+  };
+}
+
+/** MCP/LLM の文脈へ短命な download URL・内部 user id・全文 transcript を出さない。 */
+function compactVideo(value: unknown): Json {
+  const video = (value ?? {}) as Record<string, unknown>;
+  const hasTranscript = Object.prototype.hasOwnProperty.call(video, "transcript");
+  const { file: _file, user: _user, transcript, ...rest } = video;
+  const transcriptText = typeof transcript === "string" ? transcript : "";
+  return {
+    ...rest,
+    ...(hasTranscript
+      ? {
+          transcript_available: transcriptText.length > 0,
+          transcript_total_chars: transcriptText.length,
+        }
+      : {}),
+  };
+}
+
+function compactCourse(value: unknown): Json {
+  const course = (value ?? {}) as Record<string, unknown>;
+  const videos = Array.isArray(course.videos)
+    ? course.videos.map((video) => compactVideo(video))
+    : [];
+  return { ...course, videos };
+}
 
 /** ツール呼び出し（未知ツール / ドメインエラーは McpToolError）。 */
 export async function callMcpTool(
@@ -154,6 +523,7 @@ export async function callMcpTool(
   arguments_: Json,
   ctx: McpToolCallContext,
 ): Promise<Json> {
+  arguments_ = validateToolArguments(name, arguments_);
   switch (name) {
     case "list_videos": {
       const { limit, offset } = normalizePagination(arguments_);
@@ -170,17 +540,191 @@ export async function callMcpTool(
         },
         limit,
         offset,
+        { includeFileUrls: false },
       );
-      return envelope(page.results, page.count, "videos", limit, offset);
+      return envelope(
+        page.results.map((video) => compactVideo(video)),
+        page.count,
+        "videos",
+        limit,
+        offset,
+      );
     }
     case "get_video": {
       const video = await getVideoDetail(
         ctx.env,
         Number(arguments_.video_id),
         ctx.userId,
+        { includeFileUrl: false },
       );
-      if (!video) throw new McpToolError("Video not found", { status: 404 });
-      return { video };
+      if (!video) {
+        throw new McpToolError("Video not found", {
+          status: 404,
+          code: "NOT_FOUND",
+        });
+      }
+      const result = compactVideo(video);
+      if (arguments_.include_transcript === true) {
+        const transcript = video.transcript ?? "";
+        const offset = Number(arguments_.transcript_offset);
+        const limit = Number(arguments_.transcript_limit);
+        const end = Math.min(transcript.length, offset + limit);
+        result.transcript = {
+          text: transcript.slice(offset, end),
+          offset,
+          returned_chars: Math.max(0, end - offset),
+          total_chars: transcript.length,
+          has_more: end < transcript.length,
+          next_offset: end < transcript.length ? end : null,
+        };
+      }
+      return { video: result };
+    }
+    case "request_video_upload": {
+      requireWrite(ctx);
+      const contentType = String(arguments_.content_type);
+      const fileSize = Number(arguments_.file_size);
+      const payload = {
+        filename: String(arguments_.filename),
+        content_type: contentType,
+        file_size: fileSize,
+        title: String(arguments_.title),
+        description: String(arguments_.description ?? ""),
+      };
+      const result = await videoService.requestPresignedUpload(
+        ctx.env,
+        ctx.userId,
+        payload,
+        await creationIdempotency(
+          "request_video_upload",
+          arguments_.idempotency_key,
+          payload,
+        ),
+      );
+      if ("idempotencyConflict" in result) {
+        throw new McpToolError(
+          "The idempotency key was already used with different upload arguments.",
+          { status: 409, code: "IDEMPOTENCY_CONFLICT" },
+        );
+      }
+      if ("fieldError" in result) {
+        throw new McpToolError(firstFieldError(result.fieldError), {
+          status: 400,
+          code: "VALIDATION_ERROR",
+          details: result.fieldError,
+        });
+      }
+      if ("fileTooLarge" in result) {
+        throw new McpToolError(`File size exceeds the limit of ${result.maxMb} MB.`, {
+          status: 413,
+          code: "FILE_TOO_LARGE",
+          max_size_mb: result.maxMb,
+        });
+      }
+      if ("badRequest" in result) {
+        throw new McpToolError(result.badRequest ?? "Invalid upload request.", {
+          status: 400,
+          code: "code" in result ? result.code : "VALIDATION_ERROR",
+        });
+      }
+      if (!result.video || !result.upload_url) {
+        if (result.video && result.already_confirmed) {
+          return {
+            video: compactVideo(result.video),
+            reused: true,
+            already_confirmed: true,
+            upload: null,
+            next_step: null,
+          };
+        }
+        throw new McpToolError("The upload could not be prepared.", {
+          status: 500,
+          code: "INTERNAL_ERROR",
+        });
+      }
+      return {
+        video: compactVideo(result.video),
+        reused: result.reused,
+        already_confirmed: false,
+        upload: {
+          method: "PUT",
+          url: result.upload_url,
+          headers: {
+            "Content-Type": contentType,
+            "Content-Length": String(fileSize),
+          },
+          expires_in_seconds: 3600,
+        },
+        next_step: {
+          tool: "confirm_video_upload",
+          arguments: { video_id: result.video.id },
+        },
+      };
+    }
+    case "confirm_video_upload": {
+      requireWrite(ctx);
+      const result = await videoService.confirmVideoUpload(
+        ctx.env,
+        Number(arguments_.video_id),
+        ctx.userId,
+      );
+      if ("notFound" in result) {
+        throw new McpToolError("Video not found", { status: 404, code: "NOT_FOUND" });
+      }
+      if ("badState" in result) {
+        throw new McpToolError(result.message ?? "The video is not ready to confirm.", {
+          status: 400,
+          code: "INVALID_STATE",
+        });
+      }
+      if (!result.video) {
+        throw new McpToolError("The video upload could not be confirmed.", {
+          status: 500,
+          code: "INTERNAL_ERROR",
+        });
+      }
+      return {
+        video: compactVideo(result.video),
+        reused: result.alreadyConfirmed,
+      };
+    }
+    case "create_youtube_video": {
+      requireWrite(ctx);
+      const payload = {
+        youtube_url: String(arguments_.youtube_url),
+        title: String(arguments_.title),
+        description: String(arguments_.description ?? ""),
+      };
+      const result = await videoService.createUserYoutubeVideo(
+        ctx.env,
+        ctx.userId,
+        payload,
+        await creationIdempotency(
+          "create_youtube_video",
+          arguments_.idempotency_key,
+          payload,
+        ),
+      );
+      if ("idempotencyConflict" in result) {
+        throw new McpToolError(
+          "The idempotency key was already used with different YouTube arguments.",
+          { status: 409, code: "IDEMPOTENCY_CONFLICT" },
+        );
+      }
+      if ("fieldError" in result) {
+        throw new McpToolError(firstFieldError(result.fieldError), {
+          status: 400,
+          code: "VALIDATION_ERROR",
+          details: result.fieldError,
+        });
+      }
+      if (!result.video) {
+        throw new McpToolError("The YouTube video could not be created.", {
+          status: 500,
+          code: "INTERNAL_ERROR",
+        });
+      }
+      return { video: compactVideo(result.video), reused: result.reused };
     }
     case "list_courses": {
       const { limit, offset } = normalizePagination(arguments_);
@@ -188,13 +732,86 @@ export async function callMcpTool(
       return envelope(page.results, page.count, "courses", limit, offset);
     }
     case "get_course": {
+      const videoLimit = Number(arguments_.video_limit);
+      const videoOffset = Number(arguments_.video_offset);
       const course = await getCourseDetail(
         ctx.env,
         Number(arguments_.course_id),
         ctx.userId,
+        {
+          includeFileUrls: false,
+          videoLimit,
+          videoOffset,
+        },
       );
-      if (!course) throw new McpToolError("Course not found", { status: 404 });
-      return { course };
+      if (!course) {
+        throw new McpToolError("Course not found", {
+          status: 404,
+          code: "NOT_FOUND",
+        });
+      }
+      const videos = course.videos;
+      const courseResult = compactCourse(course);
+      return {
+        course: courseResult,
+        videos_meta: {
+          total: course.video_count,
+          limit: videoLimit,
+          offset: videoOffset,
+          has_more: videoOffset + videos.length < course.video_count,
+          next_offset:
+            videoOffset + videos.length < course.video_count
+              ? videoOffset + videos.length
+              : null,
+        },
+      };
+    }
+    case "create_course": {
+      requireWrite(ctx);
+      const payload = {
+        name: String(arguments_.name),
+        description: String(arguments_.description ?? ""),
+      };
+      const result = await courseService.createUserCourseIdempotent(
+        ctx.env,
+        ctx.userId,
+        payload.name,
+        payload.description,
+        await creationIdempotency(
+          "create_course",
+          arguments_.idempotency_key,
+          payload,
+        ),
+      );
+      if ("idempotencyConflict" in result) {
+        throw new McpToolError(
+          "The idempotency key was already used with different course arguments.",
+          { status: 409, code: "IDEMPOTENCY_CONFLICT" },
+        );
+      }
+      if (!result.course) {
+        throw new McpToolError("The course could not be created.", {
+          status: 500,
+          code: "INTERNAL_ERROR",
+        });
+      }
+      return { course: compactCourse(result.course), reused: result.reused };
+    }
+    case "add_video_to_course": {
+      requireWrite(ctx);
+      const result = await membershipService.addVideoToCourseOne(
+        ctx.env,
+        ctx.userId,
+        Number(arguments_.course_id),
+        Number(arguments_.video_id),
+      );
+      if ("notFound" in result) {
+        throw new McpToolError(result.notFound ?? "Resource not found", {
+          status: 404,
+          code: "NOT_FOUND",
+        });
+      }
+      return { result };
     }
     case "list_tags": {
       const { limit, offset } = normalizePagination(arguments_);
@@ -202,7 +819,11 @@ export async function callMcpTool(
       return envelope(page.results, page.count, "tags", limit, offset);
     }
     case "get_chat_history": {
-      const { limit, offset } = normalizePagination(arguments_);
+      const { limit, offset } = normalizePagination(
+        arguments_,
+        CHAT_DEFAULT_LIMIT,
+        CHAT_MAX_LIMIT,
+      );
       const res = await getCourseChatHistory(
         ctx.env,
         Number(arguments_.course_id),
@@ -211,7 +832,10 @@ export async function callMcpTool(
         offset,
       );
       if ("notFound" in res) {
-        throw new McpToolError("Course not found", { status: 404 });
+        throw new McpToolError("Course not found", {
+          status: 404,
+          code: "NOT_FOUND",
+        });
       }
       return envelope(res.results, res.count, "history", limit, offset);
     }
@@ -222,7 +846,10 @@ export async function callMcpTool(
         ctx.userId,
       );
       if ("notFound" in res) {
-        throw new McpToolError("Course not found", { status: 404 });
+        throw new McpToolError("Course not found", {
+          status: 404,
+          code: "NOT_FOUND",
+        });
       }
       return { analytics: res };
     }
@@ -233,12 +860,19 @@ export async function callMcpTool(
         ctx.userId,
       );
       if ("notFound" in res) {
-        throw new McpToolError("Course not found", { status: 404 });
+        throw new McpToolError("Course not found", {
+          status: 404,
+          code: "NOT_FOUND",
+        });
       }
       return { summary: res };
     }
     case "list_evaluation_logs": {
-      const { limit, offset } = normalizePagination(arguments_);
+      const { limit, offset } = normalizePagination(
+        arguments_,
+        CHAT_DEFAULT_LIMIT,
+        CHAT_MAX_LIMIT,
+      );
       const res = await listEvaluationLogs(
         ctx.env,
         Number(arguments_.course_id),
@@ -247,7 +881,10 @@ export async function callMcpTool(
         offset,
       );
       if ("notFound" in res) {
-        throw new McpToolError("Course not found", { status: 404 });
+        throw new McpToolError("Course not found", {
+          status: 404,
+          code: "NOT_FOUND",
+        });
       }
       return envelope(res.results, res.count, "logs", limit, offset);
     }

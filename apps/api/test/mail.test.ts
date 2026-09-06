@@ -28,4 +28,29 @@ describe("sendMail", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(cancel).toHaveBeenCalledOnce();
   });
+
+  it("requires Mailgun in production", async () => {
+    await expect(
+      sendMail(
+        {
+          ENVIRONMENT: "production",
+          DEFAULT_FROM_EMAIL: "noreply@mg.example.com",
+        } as never,
+        "student@example.com",
+        "Invitation",
+        ["Review your invitation"],
+      ),
+    ).rejects.toThrow("MAILGUN_API_KEY is required for production email delivery");
+  });
+
+  it("fails clearly when local email delivery is not configured", async () => {
+    await expect(
+      sendMail(
+        { ENVIRONMENT: "development" } as never,
+        "student@example.com",
+        "Verify",
+        ["Open the verification link"],
+      ),
+    ).rejects.toThrow("MAILGUN_API_KEY is required for email delivery");
+  });
 });

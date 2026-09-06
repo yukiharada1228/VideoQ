@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   buildPendingUploadFileKey,
   fileExtension,
@@ -9,6 +9,8 @@ import {
 } from "../src/lib/upload";
 import { resolveStorageBytesForRelease } from "../src/lib/upload-reconcile";
 import {
+  deleteR2Object,
+  getR2ObjectSize,
   isS3Storage,
   presignR2Put,
   resolveFileUrl,
@@ -61,6 +63,22 @@ describe("USE_S3_STORAGE / resolveFileUrl", () => {
     await expect(
       resolveFileUrl({ USE_S3_STORAGE: "false" } as never, "videos/1/a.mp4"),
     ).resolves.toBe("/api/media/videos/1/a.mp4");
+  });
+
+  it("productionの内部head/deleteはR2 bindingを使う", async () => {
+    const head = vi.fn().mockResolvedValue({ size: 42 });
+    const remove = vi.fn().mockResolvedValue(undefined);
+    const env = {
+      ENVIRONMENT: "production",
+      USE_S3_STORAGE: "true",
+      VIDEO_BUCKET: { head, delete: remove },
+    } as never;
+
+    await expect(getR2ObjectSize(env, "videos/1/a.mp4")).resolves.toBe(42);
+    await deleteR2Object(env, "videos/1/a.mp4");
+
+    expect(head).toHaveBeenCalledWith("media/videos/1/a.mp4");
+    expect(remove).toHaveBeenCalledWith("media/videos/1/a.mp4");
   });
 });
 

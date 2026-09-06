@@ -1,0 +1,81 @@
+# VideoQ
+
+> VideoQは、講義動画・授業録画を文字起こしして検索する学習サービスです。動画に質問すると、見たいところから再生できます。YouTubeの講義URLでも使えます。会議の文字起こしではなく、授業を見返すためのツールです。
+
+VideoQ transcribes and searches lecture videos and class recordings. Ask the video a question and play from the moment you need. YouTube lecture URLs work too. It is a learning tool for reviewing class, not a meeting transcript product.
+
+## Key Features
+
+- 講義動画・授業録画の自動文字起こし
+- Automatic transcription of lecture videos and class recordings
+- 動画に質問して、見たいところから再生
+- Ask a lecture a question and play from that scene
+- YouTubeの講義URLの登録
+- Register YouTube lecture URLs
+- クラスや研修チームへの講義共有
+- Share lecture courses with a class or training team
+- 学生の質問傾向の確認
+- Review what students asked about a lecture
+- 日本語・英語のインターフェース
+- Japanese and English interfaces
+
+## Pricing
+
+VideoQは無料で始められます。クレジットカードは不要です。Free / Basic / Pro のプランがあります。
+
+VideoQ is free to start. No credit card is required. Plans are Free, Basic, and Pro.
+
+- [無料で始める](https://videoq.jp/signup)
+- [Start free](https://videoq.jp/en/signup)
+- [料金](https://videoq.jp/pricing)
+- [Pricing](https://videoq.jp/en/pricing)
+
+## Use Cases
+
+### 教育機関 / Education
+
+大学や専門学校の授業録画を登録すると、学生は講義動画を検索して「線形代数とは？」と聞けます。通し視聴ではなく、分からない点からの復習が中心になります。
+
+When a university or vocational course registers class recordings, students can search the lecture video and ask what they did not understand. Review starts from that part, not from the beginning.
+
+### 反転授業・オンライン授業 / Flipped and Online Classrooms
+
+予習用の講義動画を配布し、学生がつまずいた箇所を質問した記録を教員が確認できます。
+
+Distribute lecture videos before class and review what students asked. Teachers can see which explanations did not land before the next session.
+
+## Public samples
+
+登録なしで、公開中の講義に質問できます。
+
+Ask a public lecture without creating an account.
+
+- [【ヨビノリ】線形代数](https://videoq.jp/share/yobinori-linearalgebra)
+- [Deep Learning の世界](https://videoq.jp/share/aicia-deeplearning)
+
+## Integrations
+
+開発者向けにMCP連携を提供しています。
+
+VideoQ provides an MCP integration for developer tools and AI agents.
+
+### MCP (Model Context Protocol)
+
+VideoQはMCPサーバーとして動作し、Claude Codeなどから動画のアップロード、YouTube動画の登録、講座作成、講座への動画追加、チャット履歴の分析ができます。
+
+VideoQ acts as an MCP server, allowing clients such as Claude Code to upload or register videos, create courses, add videos to courses, and analyze chat history.
+
+- Endpoint: `POST /api/mcp` (Streamable HTTP)
+- Authentication: OAuth bearer token or API key
+- OAuth scopes: `videoq.read` and `videoq.write`
+- Read tools accept `read_only` API keys; write tools require an `all` API key or OAuth `videoq.write`
+- Create/reserve tools require a retry-safe `idempotency_key`
+- Transcripts and chat history use bounded pagination/chunks
+- Tool set: 9 read-only tools and 5 write tools, each with input/output schemas and safety annotations
+
+## Legal
+
+- [Terms of Service](https://videoq.jp/terms)
+- [Privacy Policy](https://videoq.jp/privacy)
+- [Refund and Cancellation Policy](https://videoq.jp/refund)
+- [Specified Commercial Transactions Act notice](https://videoq.jp/legal)

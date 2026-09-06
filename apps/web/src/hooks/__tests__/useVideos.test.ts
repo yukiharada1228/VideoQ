@@ -1,0 +1,503 @@
+import { renderHook, act, waitFor } from '@testing-library/react'
+import { useVideos, useVideo } from '../useVideos'
+import { useI18nNavigate } from '@/lib/i18n'
+
+const listVideos = vi.fn()
+const getVideo = vi.fn()
+const getAccount = vi.fn()
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  getAccount.mockResolvedValue({ id: 1, username: 'testuser' })
+  listVideos.mockResolvedValue(mockPaginatedResponse([]))
+  globalThis.__setTrpcHandler('account.me', getAccount)
+  globalThis.__setTrpcHandler('videos.list', listVideos)
+  globalThis.__setTrpcHandler('videos.get', getVideo)
+})
+
+const mockPaginatedResponse = (
+  data: any[],
+  total?: number,
+  offset = 0,
+) => ({
+  data,
+  meta: {
+    total: total ?? data.length,
+    limit: 24,
+    offset,
+  },
+})
+
+describe('useVideos', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('should initialize with empty videos and loading state', () => {
+    listVideos.mockReturnValue(new Promise(() => {}))
+    const { result } = renderHook(() => useVideos())
+
+    expect(result.current.videos).toEqual([])
+    expect(result.current.isLoading).toBe(true)
+    expect(result.current.error).toBeNull()
+  })
+
+  it('should load videos from first page', async () => {
+    const mockVideos = [
+      { id: 1, title: 'Video 1', user: 1, file: '', uploaded_at: '', status: 'completed' as const },
+      { id: 2, title: 'Video 2', user: 1, file: '', uploaded_at: '', status: 'completed' as const },
+    ]
+    listVideos.mockResolvedValue(mockPaginatedResponse(mockVideos))
+
+    const { result } = renderHook(() => useVideos())
+
+    await waitFor(() => {
+      expect(result.current.videos).toEqual(mockVideos)
+      expect(result.current.isLoading).toBe(false)
+    })
+  })
+
+  it('should set hasNextPage to true when next is not null', async () => {
+    const mockVideos = Array.from({ length: 24 }, (_, i) => ({
+      id: i + 1,
+      title: `Video ${i + 1}`,
+      user: 1,
+      file: '',
+      uploaded_at: '',
+      status: 'completed' as const,
+    }))
+    listVideos.mockResolvedValue(
+      mockPaginatedResponse(mockVideos, 25, 0),
+    )
+
+    const { result } = renderHook(() => useVideos())
+
+    await waitFor(() => {
+      expect(result.current.hasNextPage).toBe(true)
+    })
+  })
+
+  it('should set hasNextPage to false when next is null', async () => {
+    const mockVideos = [
+      { id: 1, title: 'Video 1', user: 1, file: '', uploaded_at: '', status: 'completed' as const },
+    ]
+    listVideos.mockResolvedValue(mockPaginatedResponse(mockVideos, 1))
+
+    const { result } = renderHook(() => useVideos())
+
+    await waitFor(() => {
+      expect(result.current.hasNextPage).toBe(false)
+    })
+  })
+
+  it('should expose totalCount from API response', async () => {
+    const mockVideos = [
+      { id: 1, title: 'Video 1', user: 1, file: '', uploaded_at: '', status: 'completed' as const },
+    ]
+    listVideos.mockResolvedValue(mockPaginatedResponse(mockVideos, 42))
+
+    const { result } = renderHook(() => useVideos())
+
+    await waitFor(() => {
+      expect(result.current.totalCount).toBe(42)
+    })
+  })
+
+  it('should pass tags param to API', async () => {
+    listVideos.mockResolvedValue(mockPaginatedResponse([]))
+
+    renderHook(() => useVideos({ tagIds: [1, 2] }))
+
+    await waitFor(() => {
+      expect(listVideos).toHaveBeenCalledWith(
+        expect.objectContaining({ tags: [1, 2] }),
+      )
+    })
+  })
+
+  it('should pass q param to API', async () => {
+    listVideos.mockResolvedValue(mockPaginatedResponse([]))
+
+    renderHook(() => useVideos({ q: 'test query' }))
+
+    await waitFor(() => {
+      expect(listVideos).toHaveBeenCalledWith(
+        expect.objectContaining({ q: 'test query' }),
+      )
+    })
+  })
+
+  it('should pass ordering param to API', async () => {
+    listVideos.mockResolvedValue(mockPaginatedResponse([]))
+
+    renderHook(() => useVideos({ ordering: 'uploaded_at_asc' }))
+
+    await waitFor(() => {
+      expect(listVideos).toHaveBeenCalledWith(
+        expect.objectContaining({ ordering: 'uploaded_at_asc' }),
+      )
+    })
+  })
+
+  it('should pass status param to API', async () => {
+    listVideos.mockResolvedValue(mockPaginatedResponse([]))
+
+    renderHook(() => useVideos({ status: 'completed' }))
+
+    await waitFor(() => {
+      expect(listVideos).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'completed' }),
+      )
+    })
+  })
+
+  it('should omit the cursor on the first tRPC page', async () => {
+    listVideos.mockResolvedValue(mockPaginatedResponse([]))
+
+    renderHook(() => useVideos())
+
+    await waitFor(() => {
+      expect(listVideos).toHaveBeenCalledWith(
+        expect.objectContaining({ limit: 24 }),
+      )
+      expect(listVideos.mock.calls[0]?.[0]).not.toHaveProperty('cursor')
+    })
+  })
+
+  it('should load next page when fetchNextPage is called', async () => {
+    const page1 = Array.from({ length: 24 }, (_, i) => ({
+      id: i + 1,
+      title: `Video ${i + 1}`,
+      user: 1,
+      file: '',
+      uploaded_at: '',
+      status: 'completed' as const,
+    }))
+    const page2 = [
+      { id: 25, title: 'Video 25', user: 1, file: '', uploaded_at: '', status: 'completed' as const },
+    ]
+
+    listVideos
+      .mockResolvedValueOnce(
+        mockPaginatedResponse(page1, 25, 0),
+      )
+      .mockResolvedValueOnce(mockPaginatedResponse(page2, 25, 24))
+
+    const { result } = renderHook(() => useVideos())
+
+    await waitFor(() => expect(result.current.videos).toHaveLength(24))
+
+    await act(async () => {
+      result.current.fetchNextPage()
+    })
+
+    await waitFor(() => {
+      expect(result.current.videos).toHaveLength(25)
+      expect(listVideos).toHaveBeenCalledWith(
+        expect.objectContaining({ limit: 24 }),
+      )
+      expect(listVideos.mock.calls[0]?.[0]).not.toHaveProperty('cursor')
+      expect(listVideos).toHaveBeenCalledWith(
+        expect.objectContaining({ limit: 24, cursor: 24 }),
+      )
+    })
+  })
+
+  it('should flatten videos from multiple pages', async () => {
+    const page1 = Array.from({ length: 24 }, (_, i) => ({
+      id: i + 1,
+      title: `Video ${i + 1}`,
+      user: 1,
+      file: '',
+      uploaded_at: '',
+      status: 'completed' as const,
+    }))
+    const page2 = Array.from({ length: 5 }, (_, i) => ({
+      id: i + 25,
+      title: `Video ${i + 25}`,
+      user: 1,
+      file: '',
+      uploaded_at: '',
+      status: 'completed' as const,
+    }))
+
+    listVideos
+      .mockResolvedValueOnce(
+        mockPaginatedResponse(page1, 29, 0),
+      )
+      .mockResolvedValueOnce(mockPaginatedResponse(page2, 29, 24))
+
+    const { result } = renderHook(() => useVideos())
+
+    await waitFor(() => expect(result.current.videos).toHaveLength(24))
+
+    await act(async () => {
+      result.current.fetchNextPage()
+    })
+
+    await waitFor(() => {
+      expect(result.current.videos).toHaveLength(29)
+      expect(result.current.videos[0].id).toBe(1)
+      expect(result.current.videos[24].id).toBe(25)
+    })
+  })
+
+  it('should handle loading errors', async () => {
+    const error = new Error('Failed to load')
+    listVideos.mockRejectedValue(error)
+
+    const { result } = renderHook(() => useVideos())
+
+    await waitFor(() => {
+      expect(result.current.error).toBe('Failed to load')
+      expect(result.current.isLoading).toBe(false)
+    })
+  })
+})
+
+describe('useVideos - sentinelRef', () => {
+  let capturedCallback: IntersectionObserverCallback | undefined
+  const mockObserve = vi.fn()
+  const mockDisconnect = vi.fn()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    capturedCallback = undefined
+    mockObserve.mockClear()
+    mockDisconnect.mockClear()
+
+    Object.defineProperty(window, 'IntersectionObserver', {
+      writable: true,
+      configurable: true,
+      value: vi.fn((callback: IntersectionObserverCallback) => {
+        capturedCallback = callback
+        return { observe: mockObserve, unobserve: vi.fn(), disconnect: mockDisconnect }
+      }),
+    })
+  })
+
+  it('should return a sentinelRef function', async () => {
+    listVideos.mockResolvedValue(mockPaginatedResponse([]))
+    const { result } = renderHook(() => useVideos())
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(typeof result.current.sentinelRef).toBe('function')
+  })
+
+  it('should observe the sentinel element when attached', async () => {
+    listVideos.mockResolvedValue(mockPaginatedResponse([]))
+    const { result } = renderHook(() => useVideos())
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    const div = document.createElement('div')
+    await act(async () => { result.current.sentinelRef(div) })
+
+    expect(mockObserve).toHaveBeenCalledWith(div)
+  })
+
+  it('should fetch next page when sentinel enters the viewport', async () => {
+    const page1 = Array.from({ length: 24 }, (_, i) => ({
+      id: i + 1,
+      title: `Video ${i + 1}`,
+      user: 1,
+      file: '',
+      uploaded_at: '',
+      status: 'completed' as const,
+    }))
+    const page2 = [{ id: 25, title: 'Video 25', user: 1, file: '', uploaded_at: '', status: 'completed' as const }]
+
+    listVideos
+      .mockResolvedValueOnce(mockPaginatedResponse(page1, 25, 0))
+      .mockResolvedValueOnce(mockPaginatedResponse(page2, 25, 24))
+
+    const { result } = renderHook(() => useVideos())
+    await waitFor(() => expect(result.current.hasNextPage).toBe(true))
+
+    const div = document.createElement('div')
+    await act(async () => { result.current.sentinelRef(div) })
+
+    act(() => {
+      capturedCallback!([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver)
+    })
+
+    await waitFor(() => {
+      expect(result.current.videos).toHaveLength(25)
+    })
+  })
+
+  it('should not make duplicate API requests on rapid intersections while fetching', async () => {
+    const page1 = Array.from({ length: 24 }, (_, i) => ({
+      id: i + 1,
+      title: `Video ${i + 1}`,
+      user: 1,
+      file: '',
+      uploaded_at: '',
+      status: 'completed' as const,
+    }))
+
+    let resolvePage2!: (value: any) => void
+    const page2Promise = new Promise<any>(resolve => { resolvePage2 = resolve })
+
+    listVideos
+      .mockResolvedValueOnce(mockPaginatedResponse(page1, 25, 0))
+      .mockReturnValueOnce(page2Promise)
+
+    const { result } = renderHook(() => useVideos())
+    await waitFor(() => expect(result.current.hasNextPage).toBe(true))
+
+    const div = document.createElement('div')
+    await act(async () => { result.current.sentinelRef(div) })
+
+    // First intersection — starts page 2 fetch
+    act(() => {
+      capturedCallback!([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver)
+    })
+
+    // Wait for isFetchingNextPage to become true (effect re-runs → new observer with guard)
+    await waitFor(() => expect(result.current.isFetchingNextPage).toBe(true))
+
+    // Second intersection while still fetching — guard should prevent duplicate
+    act(() => {
+      capturedCallback!([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver)
+    })
+
+    // Resolve page 2
+    await act(async () => {
+      resolvePage2(mockPaginatedResponse(
+        [{ id: 25, title: 'Video 25', user: 1, file: '', uploaded_at: '', status: 'completed' as const }],
+        25,
+        24,
+      ))
+    })
+
+    await waitFor(() => expect(result.current.isFetchingNextPage).toBe(false))
+
+    // initial fetch (1) + page 2 (1) = 2 total — no duplicate page 2 request
+    expect(listVideos).toHaveBeenCalledTimes(2)
+  })
+
+  it('should disconnect observer when sentinel is detached', async () => {
+    listVideos.mockResolvedValue(mockPaginatedResponse([]))
+    const { result } = renderHook(() => useVideos())
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    const div = document.createElement('div')
+    await act(async () => { result.current.sentinelRef(div) })
+    await act(async () => { result.current.sentinelRef(null) })
+
+    expect(mockDisconnect).toHaveBeenCalled()
+  })
+})
+
+describe('useVideo', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(globalThis as any).__setMockPathname?.('/videos/1')
+    window.history.pushState({}, '', '/videos/1')
+  })
+
+  it('should initialize with null video', () => {
+    getAccount.mockReturnValue(new Promise(() => {}))
+    getVideo.mockReturnValue(new Promise(() => {}))
+    const { result } = renderHook(() => useVideo(1))
+
+    expect(result.current.video).toBeNull()
+    expect(result.current.isLoading).toBe(true)
+    expect(result.current.error).toBeNull()
+  })
+
+  it('should not load video if videoId is null', async () => {
+    const { result } = renderHook(() => useVideo(null))
+
+    await act(async () => {
+      await result.current.loadVideo()
+    })
+
+    expect(getVideo).not.toHaveBeenCalled()
+  })
+
+  it('should load video', async () => {
+    const mockUser = { id: 1, username: 'testuser' }
+    const mockVideo = {
+      id: 1,
+      title: 'Test Video',
+      user: 1,
+      file: '',
+      uploaded_at: '',
+      status: 'completed' as const,
+    }
+    getAccount.mockResolvedValue(mockUser)
+    getVideo.mockResolvedValue(mockVideo)
+
+    const { result } = renderHook(() => useVideo(1))
+
+    await act(async () => {
+      await result.current.loadVideo()
+    })
+
+    await waitFor(() => {
+      expect(result.current.video).toEqual(mockVideo)
+      expect(result.current.isLoading).toBe(false)
+    })
+  })
+
+  it('should redirect to login if not authenticated', async () => {
+    getAccount.mockResolvedValue(null)
+
+    const { result } = renderHook(() => useVideo(1))
+
+    await act(async () => {
+      try {
+        await result.current.loadVideo()
+      } catch {
+        // Expected when auth is missing
+      }
+    })
+
+    const navigate = useI18nNavigate()
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledWith('/login')
+    })
+    expect(getVideo).not.toHaveBeenCalled()
+  })
+
+  it('should use the shared auth query instead of a separate isAuthenticated check', async () => {
+    const mockUser = { id: 1, username: 'testuser' }
+    const mockVideo = {
+      id: 1,
+      title: 'Test Video',
+      user: 1,
+      file: '',
+      uploaded_at: '',
+      status: 'completed' as const,
+    }
+    getAccount.mockResolvedValue(mockUser)
+    getVideo.mockResolvedValue(mockVideo)
+
+    renderHook(() => useVideo(1))
+
+    await waitFor(() => {
+      expect(getAccount).toHaveBeenCalled()
+      expect(getVideo).toHaveBeenCalledWith({ id: 1 })
+    })
+  })
+
+  it('should handle loading errors', async () => {
+    getAccount.mockResolvedValue({ id: 1, username: 'testuser' })
+    getVideo.mockRejectedValue(new Error('Failed to load'))
+
+    const { result } = renderHook(() => useVideo(1))
+
+    await act(async () => {
+      try {
+        await result.current.loadVideo()
+      } catch {
+        // Expected to throw
+      }
+    })
+
+    await waitFor(() => {
+      expect(result.current.error).toBe('Failed to load')
+      expect(result.current.isLoading).toBe(false)
+    })
+  })
+})

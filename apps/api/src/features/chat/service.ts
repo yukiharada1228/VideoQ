@@ -1,13 +1,14 @@
 import {
   getCourseChatHistory,
-  getCourseChatHistoryForExport,
+  canExportCourseChatHistory,
   deleteCourseChatLogs,
   getCourseChatAnalytics,
   getFeedbackLog,
   updateChatLogFeedback,
   shareSlugExists as repositoryShareSlugExists,
+  iterateCourseChatHistoryForExport,
 } from "../../repositories/chat-repository";
-import { buildChatHistoryCsv } from "../../shared/csv";
+import { streamChatHistoryCsv } from "../../shared/csv";
 import type { Bindings } from "../../types/bindings";
 
 export function shareSlugExists(env: Bindings, shareSlug: string) {
@@ -29,10 +30,13 @@ export async function exportHistoryCsv(
   courseId: number,
   userId: string,
 ) {
-  const res = await getCourseChatHistoryForExport(env, courseId, userId);
-  if ("notFound" in res) return { notFound: true } as const;
+  if (!(await canExportCourseChatHistory(env, courseId, userId))) {
+    return { notFound: true } as const;
+  }
   return {
-    csv: buildChatHistoryCsv(res.rows),
+    body: streamChatHistoryCsv(
+      iterateCourseChatHistoryForExport(env, courseId, userId),
+    ),
     filename: `chat_history_course_${courseId}.csv`,
   } as const;
 }

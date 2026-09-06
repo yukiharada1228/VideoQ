@@ -4,7 +4,6 @@ import { apiKey } from "@better-auth/api-key";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import {
   admin,
-  deviceAuthorization,
   jwt,
   username,
 } from "better-auth/plugins";
@@ -15,6 +14,7 @@ import type { Bindings } from "../types/bindings";
 import { sendMail } from "./mail";
 import { summarizeAuthApiError } from "./auth-error-log";
 import { rateLimitBackend } from "./rate-limit";
+import { MCP_OAUTH_SCOPES } from "./mcp-auth";
 import { resolveSignupQuotaDefaults } from "../shared/signup-quota";
 
 function trustedOrigins(env: Bindings): string[] {
@@ -42,6 +42,42 @@ export function authBaseURL(env: Bindings): string {
 /** OAuth access tokenの発行・検証で共有する唯一のresource audience。 */
 export const oauthResourceAudience = (env: Bindings): string =>
   `${authBaseURL(env)}/api/mcp`;
+
+export function oauthProviderConfig(env: Bindings) {
+  const resource = oauthResourceAudience(env);
+  return {
+    scopes: [...MCP_OAUTH_SCOPES],
+    resources: [
+      {
+        identifier: resource,
+        name: "VideoQ MCP",
+        allowedScopes: [...MCP_OAUTH_SCOPES],
+        accessTokenTtl: 15 * 60,
+      },
+    ],
+    resourceSeedMode: "merge" as const,
+    clientRegistrationDefaultResources: [resource],
+    clientRegistrationAllowedResources: [resource],
+    // DCR clients that omit scope still receive the VideoQ read/write scopes;
+    // clients may explicitly request only videoq.read for least privilege.
+    clientRegistrationDefaultScopes: [...MCP_OAUTH_SCOPES],
+    clientRegistrationAllowedScopes: [...MCP_OAUTH_SCOPES],
+    loginPage: "/login",
+    consentPage: "/consent",
+    // MCP clients (Claude etc.) need unauthenticated DCR for public clients.
+    allowDynamicClientRegistration: true,
+    allowUnauthenticatedClientRegistration: true,
+    // Confidential clients from DCR get a bounded secret lifetime.
+    clientRegistrationClientSecretExpiration: "30d",
+    rateLimit: {
+      register: { window: 60, max: 5 },
+      token: { window: 60, max: 20 },
+      authorize: { window: 60, max: 30 },
+    },
+    // The Hono app explicitly exposes the RFC 8414 issuer-path route.
+    silenceWarnings: { oauthAuthServerConfig: true },
+  };
+}
 
 /** Normalize an email local-part (or name) into a BA username candidate. */
 export function usernameFromEmail(email: string): string {
@@ -110,16 +146,6 @@ export function durableRateLimitStorage(env: Bindings): AuthRateLimitStorage {
       );
       return { allowed, retryAfter: allowed ? null : retryAfterSec };
     },
-    // Better Auth は `consume` を持つストレージでは以下を呼ばない。将来
-    // 非原子的な経路に戻ったときに無制限化しないよう、同じ DO を読み書きする。
-    async get(key) {
-      const snapshot = await backend.snapshot(scoped(key));
-      if (!snapshot) return null;
-      return { key, count: snapshot.count, lastRequest: snapshot.lastRequestMs };
-    },
-    async set(key) {
-      await backend.record(scoped(key), AUTH_RATE_LIMIT_WINDOW_SEC);
-    },
   };
 }
 
@@ -145,11 +171,13 @@ export function createAuth(env: Bindings, db: Db) {
         verification: schema.verification,
         apikey: schema.apikey,
         jwks: schema.jwks,
-        deviceCode: schema.deviceCode,
         oauthClient: schema.oauthClient,
+        oauthResource: schema.oauthResource,
+        oauthClientResource: schema.oauthClientResource,
         oauthRefreshToken: schema.oauthRefreshToken,
         oauthAccessToken: schema.oauthAccessToken,
         oauthConsent: schema.oauthConsent,
+        oauthClientAssertion: schema.oauthClientAssertion,
       },
     }),
     secret: authSecret(env),
@@ -446,30 +474,7 @@ export function createAuth(env: Bindings, db: Db) {
         },
       }),
       jwt(),
-      deviceAuthorization({
-        verificationUri: `${env.FRONTEND_URL ?? baseURL}/device`,
-      }),
-      oauthProvider({
-        loginPage: "/login",
-        consentPage: "/consent",
-        // Resource Indicatorを認可境界として広げない。検証側も同じ値を使う。
-        // GHSA-p2fr-6hmx-4528（audience 経由の権限昇格）は、この配列が
-        // 1 件のうちは実質的に成立しない。増やす場合と 1.7 系へ上げる場合は
-        // アドバイザリの対応内容を先に確認すること。
-        validAudiences: [oauthResourceAudience(env)],
-        // MCP clients (Claude etc.) need unauthenticated DCR for public clients.
-        allowDynamicClientRegistration: true,
-        allowUnauthenticatedClientRegistration: true,
-        // Confidential clients from DCR get a bounded secret lifetime.
-        clientRegistrationClientSecretExpiration: "30d",
-        rateLimit: {
-          register: { window: 60, max: 5 },
-          token: { window: 60, max: 20 },
-          authorize: { window: 60, max: 30 },
-        },
-        // The Hono app explicitly exposes the RFC 8414 issuer-path route.
-        silenceWarnings: { oauthAuthServerConfig: true },
-      }),
+      oauthProvider(oauthProviderConfig(env)),
     ],
   });
 }

@@ -7,6 +7,7 @@ import {
   throwForResponse,
 } from "./openai";
 import type { Bindings } from "../types/bindings";
+import { deadlineSignal } from "./request-timeout";
 
 /**
  * 検索クエリの埋め込みベクトルを生成する。
@@ -15,6 +16,7 @@ import type { Bindings } from "../types/bindings";
  */
 
 const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434";
+const EMBEDDING_TIMEOUT_MS = 30_000;
 
 function embeddingProvider(env: Bindings): string {
   return (env.EMBEDDING_PROVIDER || "openai").trim().toLowerCase();
@@ -40,6 +42,7 @@ async function embedWithOpenAi(env: Bindings, text: string): Promise<number[]> {
       authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(body),
+    signal: deadlineSignal(EMBEDDING_TIMEOUT_MS),
   });
   if (!res.ok) await throwForResponse(res);
 
@@ -65,6 +68,7 @@ async function embedWithOllama(env: Bindings, text: string): Promise<number[]> {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ model, prompt: text }),
+      signal: deadlineSignal(EMBEDDING_TIMEOUT_MS),
     });
   } catch (e) {
     throw new LlmProviderError(

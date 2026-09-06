@@ -1,52 +1,15 @@
 import { pingDb } from "../../db/pool";
 import { toErrorBody } from "../../shared/errors";
-import {
-  createFeatureRouter,
-  createRoute,
-  jsonResponse,
-  errorResponse,
-  z,
-} from "../../shared/openapi";
-import { singleResponseSchema } from "../../shared/pagination";
+import { Hono } from "hono";
+import type { AppEnv } from "../../types/bindings";
 
-const healthDataSchema = z.object({
-  status: z.literal("ok"),
-  env: z.string(),
-});
+export const healthRoutes = new Hono<AppEnv>();
 
-const readyDataSchema = z.object({
-  status: z.literal("ready"),
-  db: z.literal("ok"),
-});
-
-const healthRoute = createRoute({
-  method: "get",
-  path: "/health",
-  tags: ["Health"],
-  summary: "Liveness probe",
-  responses: {
-    200: jsonResponse(singleResponseSchema(healthDataSchema), "Worker is alive"),
-  },
-});
-
-const readyRoute = createRoute({
-  method: "get",
-  path: "/ready",
-  tags: ["Health"],
-  summary: "Readiness probe (DB connectivity)",
-  responses: {
-    200: jsonResponse(singleResponseSchema(readyDataSchema), "Ready to serve traffic"),
-    503: errorResponse("Dependency unavailable"),
-  },
-});
-
-export const healthRoutes = createFeatureRouter();
-
-healthRoutes.openapi(healthRoute, (c) =>
+healthRoutes.get("/health", (c) =>
   c.json({ data: { status: "ok", env: c.env.ENVIRONMENT } }, 200),
 );
 
-healthRoutes.openapi(readyRoute, async (c) => {
+healthRoutes.get("/ready", async (c) => {
   try {
     const dbOk = await pingDb(c.env);
     if (!dbOk) {

@@ -24,7 +24,8 @@ Study mode は PLOG の concept graph と learning object を使います。
 - learner reply を短い grading call で評価
 - hint ladder と次 concept を session state で更新
 
-一時状態は `STUDY_SESSION` KV に保存し、TTL 後に削除します。
+一時状態は `STUDY_SESSION` Durable Object のSQLite storageに保存し、TTL後に削除します。
+同じ利用者・course・client sessionのターンはlease lockとrevisionで直列化します。
 
 ## 設定
 

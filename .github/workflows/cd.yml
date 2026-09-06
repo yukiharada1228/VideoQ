@@ -10,7 +10,9 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
+  id-token: write
 
 concurrency:
   group: cd-${{ github.ref }}
@@ -30,13 +32,45 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
-      # workflow_run has no push before/after. Merge commits also have an empty
-      # `git log -n1 --name-status`, so the default "last commit" fallback
-      # always reports 0 files. Compare first-parent (previous main tip) → HEAD.
+      # Compare from the last successfully completed CD run. HEAD^1 misses
+      # earlier commits in a multi-commit push and changes whose CI run was
+      # cancelled by a newer push.
       - name: Resolve paths-filter base
         id: path_base
         if: github.event_name != 'workflow_dispatch'
-        run: echo "sha=$(git rev-parse HEAD^1)" >> "$GITHUB_OUTPUT"
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const headSha = context.payload.workflow_run.head_sha;
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'cd.yml',
+              branch: 'main',
+              status: 'completed',
+              per_page: 100,
+            });
+            const previous = data.workflow_runs.find(
+              (run) => run.conclusion === 'success',
+            );
+            if (previous) {
+              core.info(`Comparing ${previous.head_sha}..${headSha}`);
+              core.setOutput('sha', previous.head_sha);
+              return;
+            }
+
+            const root = await exec.getExecOutput(
+              'git',
+              ['rev-list', '--max-parents=0', headSha],
+              { silent: true },
+            );
+            const rootSha = root.stdout.trim();
+            if (!rootSha) {
+              core.setFailed('Unable to resolve a paths-filter base SHA');
+              return;
+            }
+            core.info(`No successful CD run found; comparing ${rootSha}..${headSha}`);
+            core.setOutput('sha', rootSha);
       - uses: dorny/paths-filter@v3
         id: filter
         if: github.event_name != 'workflow_dispatch'
@@ -46,6 +80,9 @@ jobs:
           filters: |
             api:
               - 'apps/api/**'
+              - 'packages/trpc/**'
+              - 'package.json'
+              - 'package-lock.json'
               - '.github/workflows/cd.yml'
             worker:
               - 'apps/worker/**'
@@ -93,9 +130,8 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: apps/api/package-lock.json
+          cache-dependency-path: package-lock.json
       - name: Install and migrate
-        working-directory: apps/api
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
@@ -104,7 +140,7 @@ jobs:
             exit 1
           fi
           npm ci
-          npm run db:migrate
+          npm run db:migrate --workspace @videoq/api
 
   api-deploy:
     name: Deploy API (Cloudflare Workers)
@@ -124,11 +160,10 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: apps/api/package-lock.json
+          cache-dependency-path: package-lock.json
       # wrangler-action needs local node_modules; without npm ci it falls back to
       # installing wrangler@3.x which conflicts with @cloudflare/workers-types@5.
       - name: Install API dependencies
-        working-directory: apps/api
         run: npm ci
       - name: Deploy Worker
         uses: cloudflare/wrangler-action@v3
@@ -156,8 +191,8 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_DEPLOY_ROLE_ARN }}
+          role-session-name: videoq-worker-deploy
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Login to Amazon ECR

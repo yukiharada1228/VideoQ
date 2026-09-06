@@ -5,10 +5,15 @@ feature module と明示的な依存方向で構成します。
 
 ```mermaid
 classDiagram
-    class FeatureRoutes {
-      +OpenAPI route definitions
-      +Zod request/response schemas
-      +middleware composition
+    class TrpcRouter {
+      +procedure definitions
+      +Zod input schemas
+      +auth middleware
+    }
+    class HonoAdapter {
+      +request context
+      +procedure handlers
+      +raw protocol routes
     }
     class FeatureService {
       +use case orchestration
@@ -32,7 +37,8 @@ classDiagram
       +OpenAI
     }
 
-    FeatureRoutes --> FeatureService
+    TrpcRouter --> HonoAdapter
+    HonoAdapter --> FeatureService
     FeatureService --> Repository
     Repository --> ModernSchema
     FeatureService --> ExternalServices

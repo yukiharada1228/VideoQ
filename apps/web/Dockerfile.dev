@@ -1,0 +1,17 @@
+# Vite dev server for docker compose (proxies /api → api:8787).
+FROM node:22-bookworm-slim
+
+WORKDIR /workspace
+
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY packages/trpc/package.json packages/trpc/package.json
+RUN npm ci --workspace @videoq/web
+
+COPY apps/web apps/web
+COPY packages/trpc packages/trpc
+
+EXPOSE 3000
+
+CMD ["sh", "-c", "if [ ! -x /workspace/node_modules/.bin/vite ]; then npm ci --workspace @videoq/web; fi; npm run dev --workspace @videoq/web -- --host 0.0.0.0 --port 3000"]

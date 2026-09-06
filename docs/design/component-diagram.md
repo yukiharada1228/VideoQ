@@ -6,8 +6,9 @@
 flowchart LR
     UI[React pages / components] --> Hooks[Hooks + TanStack Query]
     Hooks --> Client[frontend API client]
-    Client --> Routes[OpenAPIHono routes]
-    Routes --> Services[Feature services]
+    Client --> Contract[shared tRPC router]
+    Contract --> Adapter[Hono tRPC adapter]
+    Adapter --> Services[Feature services]
     Services --> Repositories[Repositories]
     Repositories --> DB[(PostgreSQL)]
     Services --> R2[(R2)]
@@ -20,16 +21,17 @@ flowchart LR
 
 ## API feature
 
-各ドメインは同じ構造を使います。
+通常の JSON API は共有 tRPC router と API adapter を通ります。
 
 ```mermaid
 flowchart TD
-    Request --> Middleware[auth / Origin check / rate limit]
-    Middleware --> Route[routes.ts<br/>createRoute + Zod]
-    Route --> Service[service.ts]
+    Request --> Hono[Hono middleware]
+    Hono --> Router[tRPC router<br/>Zod input]
+    Router --> Adapter[request-scoped handler]
+    Adapter --> Service[feature service]
     Service --> Repository[repository]
     Repository --> Drizzle[Drizzle / SQL]
-    Route --> Response[OpenAPI response]
+    Router --> Response[tRPC response]
 ```
 
 主な feature:
@@ -38,8 +40,11 @@ flowchart TD
 - videos / courses / tags
 - chat / evaluation / plog
 - oauth / mcp
-- membership / ops / media
-- schema / health
+- membership / media
+- health
+
+OAuth、webhook、SSE、multipart、CSV、media binary、OpenAI 互換 API は
+HTTP protocol 固有のため Hono route として分離します。
 
 ## Worker
 

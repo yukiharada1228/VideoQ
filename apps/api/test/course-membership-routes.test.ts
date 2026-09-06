@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TEST_USER_ID, testAuthHeaders } from "./helpers/auth";
+import { requestTrpc, trpcData, trpcError } from "./helpers/trpc";
 
 const service = vi.hoisted(() => ({
   inviteCourseMembers: vi.fn(),
@@ -22,8 +23,6 @@ vi.mock("../src/lib/auth", () => ({
     api: { getSession: vi.fn(async () => null) },
   })),
 }));
-
-import { courseMembershipRoutes } from "../src/features/course-memberships/routes";
 
 const ENV = {
   ENVIRONMENT: "development",
@@ -48,18 +47,16 @@ describe("course membership routes", () => {
       ],
     });
 
-    const response = await courseMembershipRoutes.request(
-      "/courses/5/invitations",
-      {
-        method: "POST",
-        headers: jsonHeaders,
-        body: JSON.stringify({ emails: ["a@example.com", "bad"] }),
-      },
+    const response = await requestTrpc(
+      "courseMemberships.invite",
+      "mutation",
+      { courseId: 5, emails: ["a@example.com", "bad"] },
+      { headers: jsonHeaders },
       ENV,
     );
 
-    expect(response.status).toBe(201);
-    expect(await response.json()).toEqual({
+    expect(response.status).toBe(200);
+    expect(await trpcData(response)).toEqual({
       results: [
         { email: "a@example.com", status: "queued", invitation_id: 10 },
         { email: "bad", status: "invalid" },
@@ -82,17 +79,15 @@ describe("course membership routes", () => {
       ],
     });
 
-    const response = await courseMembershipRoutes.request(
-      "/courses/5/invitations",
-      {
-        method: "POST",
-        headers: jsonHeaders,
-        body: JSON.stringify({ emails: [overlong, "valid@example.com"] }),
-      },
+    const response = await requestTrpc(
+      "courseMemberships.invite",
+      "mutation",
+      { courseId: 5, emails: [overlong, "valid@example.com"] },
+      { headers: jsonHeaders },
       ENV,
     );
 
-    expect(response.status).toBe(201);
+    expect(response.status).toBe(200);
     expect(service.inviteCourseMembers).toHaveBeenCalledWith(
       ENV,
       5,
@@ -111,14 +106,16 @@ describe("course membership routes", () => {
       expires_at: "2026-08-29T00:00:00.000Z",
     });
 
-    const response = await courseMembershipRoutes.request(
-      "/course-invitations/public-token",
+    const response = await requestTrpc(
+      "courseMemberships.preview",
+      "query",
+      { token: "public-token" },
       {},
       ENV,
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
+    expect(await trpcData(response)).toMatchObject({
       course_name: "Physics",
       email_hint: "s*****t@example.com",
       status: "pending",
@@ -128,14 +125,16 @@ describe("course membership routes", () => {
   it("creates membership only through the authenticated accept endpoint", async () => {
     service.acceptInvitation.mockResolvedValue({ ok: true, courseId: 5 });
 
-    const response = await courseMembershipRoutes.request(
-      "/course-invitations/public-token/accept",
-      { method: "POST", headers: testAuthHeaders() },
+    const response = await requestTrpc(
+      "courseMemberships.accept",
+      "mutation",
+      { token: "public-token" },
+      { headers: testAuthHeaders() },
       ENV,
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ course_id: 5, status: "accepted" });
+    expect(await trpcData(response)).toEqual({ course_id: 5, status: "accepted" });
     expect(service.acceptInvitation).toHaveBeenCalledWith(
       ENV,
       "public-token",
@@ -146,22 +145,26 @@ describe("course membership routes", () => {
   it("rejects acceptance by an account with a different verified email", async () => {
     service.acceptInvitation.mockResolvedValue({ emailMismatch: true });
 
-    const response = await courseMembershipRoutes.request(
-      "/course-invitations/public-token/accept",
-      { method: "POST", headers: testAuthHeaders() },
+    const response = await requestTrpc(
+      "courseMemberships.accept",
+      "mutation",
+      { token: "public-token" },
+      { headers: testAuthHeaders() },
       ENV,
     );
 
     expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({
-      error: { code: "INVITATION_EMAIL_MISMATCH" },
+    expect(await trpcError(response)).toMatchObject({
+      code: "INVITATION_EMAIL_MISMATCH",
     });
   });
 
   it("requires authentication for accepting an invitation", async () => {
-    const response = await courseMembershipRoutes.request(
-      "/course-invitations/public-token/accept",
-      { method: "POST" },
+    const response = await requestTrpc(
+      "courseMemberships.accept",
+      "mutation",
+      { token: "public-token" },
+      {},
       ENV,
     );
 

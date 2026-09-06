@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, or, sql } from "drizzle-orm";
 import { withDb } from "../db/pool";
 import {
   chatLogs,
@@ -39,7 +39,7 @@ export type ChatLogItem = {
   answer: string;
   citations: ChatCitation[];
   is_shared_origin: boolean;
-  feedback: string | null;
+  feedback: "good" | "bad" | null;
   created_at: string;
 };
 
@@ -73,6 +73,10 @@ function mapCitations(raw: unknown): ChatCitation[] {
   }));
 }
 
+function chatFeedback(value: unknown): "good" | "bad" | null {
+  return value === "good" || value === "bad" ? value : null;
+}
+
 function mapQuestionAuthor(
   isSharedOrigin: boolean,
   userId: unknown,
@@ -101,6 +105,14 @@ async function courseOwnedBy(
     .where(and(eq(videoCourses.id, courseId), eq(videoCourses.userId, userId)))
     .limit(1);
   return rows.length > 0;
+}
+
+export function canExportCourseChatHistory(
+  env: Bindings,
+  courseId: number,
+  userId: string,
+): Promise<boolean> {
+  return withDb(env, (db) => courseOwnedBy(db, courseId, userId));
 }
 
 /**
@@ -198,7 +210,7 @@ export async function createChatLog(
       });
       return {
         id: chatLogId,
-        feedback: r.feedback ?? null,
+        feedback: chatFeedback(r.feedback),
         taskId: task.id,
       };
     }),
@@ -245,59 +257,110 @@ export type ChatHistoryExportRow = {
   feedback: string | null;
 };
 
-/**
- * CSV 用にチャット履歴を昇順で全件取得する。
- * created_at は DB の日時を UTC ISO 8601 形式で返す。
- * マイクロ秒 0 のときは小数秒を省略する。
- */
-export async function getCourseChatHistoryForExport(
+type ChatHistoryExportCursor = {
+  createdAt: string;
+  id: number;
+};
+
+const CHAT_HISTORY_EXPORT_PAGE_SIZE = 100;
+
+/** CSV rows are fetched with a stable keyset cursor, never as one unbounded result. */
+async function getCourseChatHistoryExportPage(
   env: Bindings,
   courseId: number,
   userId: string,
-): Promise<{ notFound: true } | { rows: ChatHistoryExportRow[] }> {
+  cursor: ChatHistoryExportCursor | null,
+): Promise<{
+  rows: ChatHistoryExportRow[];
+  nextCursor: ChatHistoryExportCursor | null;
+}> {
   return withDb(env, async (db) => {
-    if (!(await courseOwnedBy(db, courseId, userId))) {
-      return { notFound: true } as const;
-    }
+    const afterCursor = cursor
+      ? or(
+          gt(chatLogs.createdAt, cursor.createdAt),
+          and(
+            eq(chatLogs.createdAt, cursor.createdAt),
+            gt(chatLogs.id, cursor.id),
+          ),
+        )
+      : undefined;
+    const selected = await db
+      .select({
+        // Keep PostgreSQL's full timestamp precision for the keyset cursor.
+        // node-postgres Date values only retain milliseconds, so selecting the
+        // timestamp as text prevents rows within the same millisecond from
+        // being repeated or skipped at a page boundary.
+        createdAt: sql<string | Date>`${chatLogs.createdAt}::text`,
+        userId: chatLogs.userId,
+        username: users.username,
+        email: users.email,
+        question: chatLogs.question,
+        answer: chatLogs.answer,
+        isSharedOrigin: chatLogs.isSharedOrigin,
+        feedback: chatLogs.feedback,
+        citations: chatLogs.citations,
+        id: chatLogs.id,
+      })
+      .from(chatLogs)
+      .innerJoin(
+        videoCourses,
+        and(
+          eq(videoCourses.id, chatLogs.courseId),
+          eq(videoCourses.userId, userId),
+        ),
+      )
+      .leftJoin(users, eq(users.id, chatLogs.userId))
+      .where(and(eq(chatLogs.courseId, courseId), afterCursor))
+      .orderBy(asc(chatLogs.createdAt), asc(chatLogs.id))
+      .limit(CHAT_HISTORY_EXPORT_PAGE_SIZE);
 
-    const result = await db.execute(sql`
-      SELECT cl.user_id, u.username, u.email,
-             cl.question, cl.answer, cl.citations::text AS citations,
-             cl.is_shared_origin, cl.feedback, cl.created_at
-        FROM chat_logs cl
-        LEFT JOIN users u ON u.id = cl.user_id
-       WHERE cl.course_id = ${courseId}
-       ORDER BY cl.created_at ASC
-    `);
-    const rows = result.rows as Array<{
-      question: string;
-      answer: string;
-      citations: string;
-      is_shared_origin: boolean;
-      feedback: string | null;
-      created_at: string;
-      user_id: string;
-      username: string | null;
-      email: string | null;
-    }>;
+    const last = selected.at(-1);
 
     return {
-      rows: rows.map((r) => ({
-        created_at: toUtcIso(r.created_at)!,
+      rows: selected.map((row) => ({
+        created_at: toUtcIso(row.createdAt),
         asked_by: mapQuestionAuthor(
-          r.is_shared_origin,
-          r.user_id,
-          r.username,
-          r.email,
+          row.isSharedOrigin,
+          row.userId,
+          row.username,
+          row.email,
         ),
-        question: r.question,
-        answer: r.answer,
-        is_shared_origin: r.is_shared_origin,
-        citations: mapCitations(r.citations),
-        feedback: r.feedback ?? null,
+        question: row.question,
+        answer: row.answer,
+        is_shared_origin: row.isSharedOrigin,
+        citations: mapCitations(row.citations),
+        feedback: row.feedback ?? null,
       })),
+      nextCursor:
+        selected.length === CHAT_HISTORY_EXPORT_PAGE_SIZE && last
+          ? {
+              createdAt:
+                last.createdAt instanceof Date
+                  ? last.createdAt.toISOString()
+                  : last.createdAt,
+              id: last.id,
+            }
+          : null,
     };
   });
+}
+
+export async function* iterateCourseChatHistoryForExport(
+  env: Bindings,
+  courseId: number,
+  userId: string,
+): AsyncGenerator<ChatHistoryExportRow> {
+  let cursor: ChatHistoryExportCursor | null = null;
+  do {
+    const page = await getCourseChatHistoryExportPage(
+      env,
+      courseId,
+      userId,
+      cursor,
+    );
+    for (const row of page.rows) yield row;
+    cursor = page.nextCursor;
+  } while (cursor);
 }
 
 /** feedback 用: chat log + その course の user_id / share_slug（権限判定に使う）。 */
@@ -340,8 +403,8 @@ export async function getFeedbackLog(
 export async function updateChatLogFeedback(
   env: Bindings,
   logId: number,
-  feedback: string | null,
-): Promise<{ id: number; feedback: string | null }> {
+  feedback: "good" | "bad" | null,
+): Promise<{ id: number; feedback: "good" | "bad" | null }> {
   return withDb(env, async (db) => {
     const rows = await db
       .update(chatLogs)
@@ -349,7 +412,7 @@ export async function updateChatLogFeedback(
       .where(eq(chatLogs.id, logId))
       .returning({ id: chatLogs.id, feedback: chatLogs.feedback });
     const r = rows[0];
-    return { id: Number(r.id), feedback: r.feedback ?? null };
+    return { id: Number(r.id), feedback: chatFeedback(r.feedback) };
   });
 }
 
@@ -486,7 +549,7 @@ export async function getCourseChatHistory(
       answer: r.answer,
       citations: mapCitations(r.citations),
       is_shared_origin: r.is_shared_origin,
-      feedback: r.feedback ?? null,
+      feedback: chatFeedback(r.feedback),
       created_at: toUtcIso(r.created_at)!,
     }));
 

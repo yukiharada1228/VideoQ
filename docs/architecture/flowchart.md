@@ -375,43 +375,38 @@ flowchart TD
     Action -->|Create Key| CreateKey[Create API Key]
     Action -->|Revoke Key| RevokeKey[Revoke API Key]
 
-    ListKeys --> FetchKeys[(Database<br/>Query Active Keys<br/>revoked_at IS NULL)]
+    ListKeys --> FetchKeys[Better Auth<br/>List User API Keys]
     FetchKeys --> DisplayKeys[Display Key List<br/>prefix, name, access_level, created_at]
     DisplayKeys --> End([Complete])
 
     CreateKey --> InputName[Input Key Name]
     InputName --> SelectAccess[Select Access Level<br/>all / read_only]
-    SelectAccess --> ValidateName{"Duplicate Name<br>Check (active keys)"}
-    ValidateName -->|Duplicate| ErrorDup[Error: Name Already Exists]
-    ValidateName -->|OK| GenerateKey[Generate Raw Key<br/>vq_ + token_urlsafe]
-    GenerateKey --> HashKey[SHA-256 Hash]
-    HashKey --> SaveKey[(Database<br/>Create UserApiKey<br/>prefix + hashed_key)]
+    SelectAccess --> GenerateKey[Better Auth<br/>Generate vq_ API Key]
+    GenerateKey --> SaveKey[(Database<br/>Store apikey hash<br/>+ accessLevel metadata)]
     SaveKey --> ShowRawKey[Display Raw Key<br/>One-time only]
     ShowRawKey --> End
 
     RevokeKey --> SelectKey[Select API Key]
     SelectKey --> ConfirmRevoke{"Confirm<br>Revocation?"}
     ConfirmRevoke -->|Cancel| End
-    ConfirmRevoke -->|Confirm| SetRevoked[(Database<br/>Set revoked_at = now)]
-    SetRevoked --> SuccessRevoke[Revoke Success]
+    ConfirmRevoke -->|Confirm| DeleteKey[Better Auth<br/>Delete API Key]
+    DeleteKey --> SuccessRevoke[Revoke Success]
     SuccessRevoke --> End
-
-    ErrorDup --> InputName
 ```
 
 ## 10. APIキー認証フロー
 
 ```mermaid
 flowchart TD
-    Start([API Request with X-API-Key]) --> ExtractKey[Extract API Key from Header]
-    ExtractKey --> HashKey[SHA-256 Hash Key]
-    HashKey --> LookupKey["Database<br/>Lookup by hashed_key<br/>+ revoked_at IS NULL"]
+    Start([MCP Request<br/>Bearer vq_... / X-API-Key]) --> ExtractKey[Extract API Key]
+    ExtractKey --> HashKey[Better Auth<br/>Hash and Verify Key]
+    HashKey --> LookupKey[(Database<br/>Lookup enabled apikey)]
     LookupKey --> CheckFound{"Key Found?"}
     CheckFound -->|Not Found| Error401[401 Unauthorized]
-    CheckFound -->|Found| MarkUsed[Update last_used_at]
+    CheckFound -->|Found| MarkUsed[Update last_request]
     MarkUsed --> CheckAccess{"access_level vs<br>required_scope?"}
-    CheckAccess -->|read_only + write except chat_write| Error403[403 Forbidden]
-    CheckAccess -->|Allowed| ProcessRequest[Process Request as User]
+    CheckAccess -->|read_only + write| Error403[403 Forbidden]
+    CheckAccess -->|Allowed| ProcessRequest[Execute MCP Tool as User]
     ProcessRequest --> Response[Success Response]
     Response --> End([Complete])
     

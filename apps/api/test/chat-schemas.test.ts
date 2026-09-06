@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
-  chatMessageBodySchema,
-  openAiCompletionBodySchema,
-} from "../src/features/chat/schemas";
+  CHAT_MAX_MESSAGE_CHARS,
+  CHAT_MAX_MESSAGES,
+  CHAT_MAX_TOTAL_CHARS,
+} from "@videoq/trpc/schema";
+import { chatMessageBodySchema } from "../src/features/chat/schemas";
 
 describe("chatMessageBodySchema", () => {
   it("accepts qa payload", () => {
@@ -25,13 +27,39 @@ describe("chatMessageBodySchema", () => {
       }).success,
     ).toBe(false);
   });
-});
 
-describe("openAiCompletionBodySchema", () => {
-  it("defaults model to videoq", () => {
-    const r = openAiCompletionBodySchema.parse({
-      messages: [{ role: "user", content: "hi" }],
-    });
-    expect(r.model).toBe("videoq");
+  it("メッセージ件数の上限を超えた入力を拒否する", () => {
+    expect(
+      chatMessageBodySchema.safeParse({
+        messages: Array.from({ length: CHAT_MAX_MESSAGES + 1 }, () => ({
+          role: "user",
+          content: "x",
+        })),
+      }).success,
+    ).toBe(false);
+  });
+
+  it("単一メッセージの文字数上限を超えた入力を拒否する", () => {
+    expect(
+      chatMessageBodySchema.safeParse({
+        messages: [
+          { role: "user", content: "x".repeat(CHAT_MAX_MESSAGE_CHARS + 1) },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("各メッセージが上限内でも合計文字数の上限を超えた入力を拒否する", () => {
+    const messageCount = Math.floor(
+      CHAT_MAX_TOTAL_CHARS / CHAT_MAX_MESSAGE_CHARS,
+    ) + 1;
+    expect(
+      chatMessageBodySchema.safeParse({
+        messages: Array.from({ length: messageCount }, () => ({
+          role: "user",
+          content: "x".repeat(CHAT_MAX_MESSAGE_CHARS),
+        })),
+      }).success,
+    ).toBe(false);
   });
 });

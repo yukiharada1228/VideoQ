@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { z } from "@hono/zod-openapi";
+import { z } from "zod";
 import type { AppEnv } from "../types/bindings";
 
 export const paginationQuerySchema = z.object({

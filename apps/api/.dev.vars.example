@@ -19,6 +19,9 @@ USER_SECRET_ENCRYPTION_KEY=""
 # STRIPE_SECRET_KEY=""
 # STRIPE_WEBHOOK_SECRET=""
 
+# Transactional email. Required in production; optional for local development.
+# MAILGUN_API_KEY=""
+
 # --- Local MinIO (docker compose up -d postgres minio minio-init) ---
 # Console: http://127.0.0.1:9001  API: http://127.0.0.1:9000
 R2_ACCESS_KEY_ID="minioadmin"

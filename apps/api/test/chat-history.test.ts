@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { chatRoutes } from "../src/features/chat/routes";
 import { buildChatHistoryCsv, csvDocument } from "../src/shared/csv";
 import { signAccessToken } from "./helpers/auth";
+import { requestTrpc, trpcData, trpcError } from "./helpers/trpc";
 
 /**
  * GET ?download=csv（ExportChatHistoryUseCase + write_chat_history_csv）と
@@ -42,7 +43,7 @@ const ENV = {
 
 const exportRows = [
   {
-    created_at: "2026-05-01T12:34:56+00:00",
+    created_at: new Date("2026-05-01T12:34:56+00:00"),
     user_id: "00000000-0000-4000-8000-000000000006",
     username: "student",
     email: "student@example.com",
@@ -53,9 +54,10 @@ const exportRows = [
     citations: JSON.stringify([
       { video_id: 60, title: "動画 A", start_time: "00:00:10", end_time: "00:00:20" },
     ]),
+    id: 1,
   },
   {
-    created_at: "2026-05-02T00:00:01.123456+00:00",
+    created_at: new Date("2026-05-02T00:00:01.123456+00:00"),
     user_id: "00000000-0000-4000-8000-000000000005",
     username: "owner",
     email: "owner@example.com",
@@ -64,6 +66,7 @@ const exportRows = [
     is_shared_origin: true,
     feedback: null,
     citations: "[]",
+    id: 2,
   },
 ];
 
@@ -75,9 +78,9 @@ const EXPECTED_CSV =
   "2026-05-02T00:00:01.123Z,,,,second,answer,true,[],\r\n";
 
 const defaultRows = (sql: MatchableSql): Record<string, unknown>[] => {
-  if (sql.includes("video_courses")) return [{ id: 1 }];
-  if (sql.includes("chat_logs") && sql.includes("ORDER BY cl.created_at ASC"))
+  if (sql.includes("chat_logs") && sql.includes("ORDER BY chat_logs.created_at ASC"))
     return exportRows;
+  if (sql.includes("video_courses")) return [{ id: 1 }];
   return [];
 };
 
@@ -90,17 +93,29 @@ async function accessToken(userId = "00000000-0000-4000-8000-000000000005") {
   return signAccessToken(SECRET, userId);
 }
 
-const request = async (path: string, method: string, token?: string) =>
-  chatRoutes.request(
-    path,
-    { method, headers: token ? { "X-VideoQ-Test-User-Id": "00000000-0000-4000-8000-000000000005" } : {} },
-    ENV,
-  );
+const request = async (path: string, method: string, token?: string) => {
+  const headers = token
+    ? { "X-VideoQ-Test-User-Id": "00000000-0000-4000-8000-000000000005" }
+    : {};
+  if (path.endsWith(".csv")) {
+    return chatRoutes.request(path, { method, headers }, ENV);
+  }
+  const url = new URL(path, "http://localhost");
+  const courseId = Number(url.pathname.split("/")[2]);
+  if (method === "GET") {
+    return requestTrpc("chat.history", "query", {
+      courseId,
+      limit: Number(url.searchParams.get("limit") ?? 100),
+      offset: Number(url.searchParams.get("offset") ?? 0),
+    }, { headers }, ENV);
+  }
+  return requestTrpc("chat.resetHistory", "mutation", { courseId }, { headers }, ENV);
+};
 
-describe("GET /courses/:id/history/?download=csv", () => {
+describe("GET /courses/:id/history.csv", () => {
   it("CRLF・最小引用・compact JSON の CSV を返す", async () => {
     const res = await request(
-      "/courses/3/history?download=csv",
+      "/courses/3/history.csv",
       "GET",
       await accessToken(),
     );
@@ -109,27 +124,81 @@ describe("GET /courses/:id/history/?download=csv", () => {
     expect(res.headers.get("content-disposition")).toBe(
       'attachment; filename="chat_history_course_3.csv"',
     );
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    expect(res.headers.get("content-length")).toBeNull();
 
     const body = await res.text();
     expect(body).toBe(EXPECTED_CSV);
+    const pageQuery = calls.find((call) =>
+      call.sql.includes("ORDER BY chat_logs.created_at ASC"),
+    );
+    expect(pageQuery?.args.at(-1)).toBe(100);
+  });
+
+  it("100件ずつ keyset pagination しながら全行をストリームする", async () => {
+    let pageNumber = 0;
+    const makeRow = (id: number) => ({
+      created_at:
+        id === 100
+          ? "2026-01-01 00:01:40.123456+00"
+          : new Date(Date.UTC(2026, 0, 1, 0, 0, id)),
+      user_id: "00000000-0000-4000-8000-000000000006",
+      username: "student",
+      email: "student@example.com",
+      question: `question-${id}`,
+      answer: `answer-${id}`,
+      is_shared_origin: false,
+      feedback: null,
+      citations: "[]",
+      id,
+    });
+    rowsFor = (sql) => {
+      if (sql.includes("chat_logs") && sql.includes("ORDER BY chat_logs.created_at ASC")) {
+        pageNumber += 1;
+        return pageNumber === 1
+          ? Array.from({ length: 100 }, (_, index) => makeRow(index + 1))
+          : [makeRow(101)];
+      }
+      if (sql.includes("video_courses")) return [{ id: 3 }];
+      return [];
+    };
+
+    const response = await request(
+      "/courses/3/history.csv",
+      "GET",
+      await accessToken(),
+    );
+    const csv = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(csv.split("\r\n")).toHaveLength(103);
+    expect(csv).toContain("question-1");
+    expect(csv).toContain("question-101");
+    const pageQueries = calls.filter((call) =>
+      call.sql.includes("ORDER BY chat_logs.created_at ASC"),
+    );
+    expect(pageQueries).toHaveLength(2);
+    expect(pageQueries[1].sql.includes("chat_logs.created_at >")).toBe(true);
+    expect(pageQueries[1].args).toContain("2026-01-01 00:01:40.123456+00");
+    expect(pageQueries.every((call) => call.args.at(-1) === 100)).toBe(true);
   });
 
   it("他人の講座は 404 Course not found.", async () => {
     rowsFor = (sql) =>
       sql.includes("video_courses") ? [] : defaultRows(sql);
     const res = await request(
-      "/courses/3/history?download=csv",
+      "/courses/3/history.csv",
       "GET",
       await accessToken(),
     );
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({
-      error: { code: "VALIDATION_ERROR", message: "Course not found." },
+      error: { code: "NOT_FOUND", message: "Course not found." },
     });
   });
 
   it("未認証は 401", async () => {
-    const res = await request("/courses/3/history?download=csv", "GET");
+    const res = await request("/courses/3/history.csv", "GET");
     expect(res.status).toBe(401);
   });
 });
@@ -174,7 +243,7 @@ describe("GET /courses/:id/history", () => {
 
     const res = await request("/courses/3/history?limit=10", "GET", await accessToken());
     expect(res.status).toBe(200);
-    const body = await res.json() as { data: Array<Record<string, unknown>> };
+    const body = await trpcData<{ data: Array<Record<string, unknown>> }>(res);
     expect(body.data[0].asked_by).toEqual({
       user_id: "00000000-0000-4000-8000-000000000006",
       username: "student",
@@ -188,6 +257,16 @@ describe("CSV の細部", () => {
   it("QUOTE_MINIMAL: 区切り・引用符・改行を含む値だけ引用する", () => {
     expect(csvDocument([["a", "b,c", 'q"q', "line\nbreak", "cr\r"]])).toBe(
       'a,"b,c","q""q","line\nbreak","cr\r"\r\n',
+    );
+  });
+
+  it("スプレッドシート数式として解釈される先頭文字を無害化する", () => {
+    expect(
+      csvDocument([
+        ["=1+1", "+SUM(A1:A2)", "-2+3", "@command", "  =hidden", "\tformula"],
+      ]),
+    ).toBe(
+      "'=1+1,'+SUM(A1:A2),'-2+3,'@command,'  =hidden,'\tformula\r\n",
     );
   });
 
@@ -246,11 +325,11 @@ describe("CSV の細部", () => {
   });
 });
 
-describe("DELETE /courses/:id/history/", () => {
-  it("評価 → chat log の順に削除して 204 を返す", async () => {
+describe("chat.resetHistory", () => {
+  it("評価 → chat log の順に削除して success を返す", async () => {
     const res = await request("/courses/3/history", "DELETE", await accessToken());
-    expect(res.status).toBe(204);
-    expect(await res.text()).toBe("");
+    expect(res.status).toBe(200);
+    expect(await trpcData(res)).toEqual({ success: true });
 
     const txnCalls = calls.filter((c) => !c.sql.includes("FROM session"));
     const sqls = txnCalls.map((c) => c.sql.replace(/\s+/g, " ").trim());
@@ -266,8 +345,9 @@ describe("DELETE /courses/:id/history/", () => {
     rowsFor = () => [];
     const res = await request("/courses/3/history", "DELETE", await accessToken());
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({
-      error: { code: "VALIDATION_ERROR", message: "Course not found." },
+    expect(await trpcError(res)).toEqual({
+      code: "NOT_FOUND",
+      message: "Course not found.",
     });
     expect(calls.some((c) => c.sql.includes("delete from"))).toBe(false);
   });

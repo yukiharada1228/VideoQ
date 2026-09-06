@@ -286,25 +286,22 @@ flowchart TD
     SelectAction -->|Create| CreateKey[Create API Key]
     SelectAction -->|Revoke| RevokeKey[Revoke API Key]
 
-    ListKeys --> FetchKeys[Fetch Active Keys<br/>from Database]
+    ListKeys --> FetchKeys[Better Auth<br/>List User API Keys]
     FetchKeys --> DisplayKeys[Display Key List<br/>prefix, name, access_level]
     DisplayKeys --> Complete([Complete])
 
     CreateKey --> InputName[Input Key Name]
     InputName --> SelectAccess[Select Access Level<br/>all / read_only]
-    SelectAccess --> CheckDup{Duplicate Name Check}
-    CheckDup -->|Duplicate| ShowError[Error: Name Already Exists]
-    ShowError --> InputName
-    CheckDup -->|OK| GenerateKey[Generate Raw Key<br/>vq_...]
-    GenerateKey --> HashAndSave[SHA-256 Hash + Save to DB]
+    SelectAccess --> GenerateKey[Better Auth<br/>Generate Raw Key vq_...]
+    GenerateKey --> HashAndSave[Store Hash + accessLevel Metadata]
     HashAndSave --> ShowRawKey[Display Raw Key<br/>One-Time Only]
     ShowRawKey --> Complete
 
     RevokeKey --> SelectKey[Select API Key]
     SelectKey --> ConfirmRevoke{Confirm Revocation}
     ConfirmRevoke -->|Cancel| Complete
-    ConfirmRevoke -->|Confirm| SetRevoked[Set revoked_at<br/>Soft Delete]
-    SetRevoked --> Complete
+    ConfirmRevoke -->|Confirm| DeleteKey[Better Auth<br/>Delete API Key]
+    DeleteKey --> Complete
 ```
 
 ## 10. チャット分析プロセス

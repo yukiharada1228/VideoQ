@@ -154,7 +154,7 @@ export async function addVideoToCourse(
   env: Bindings,
   courseId: number,
   videoId: number,
-): Promise<{ alreadyIn: true } | { id: number }> {
+): Promise<{ alreadyIn: true; id: number } | { id: number }> {
   return withDb(env, async (db) =>
     db.transaction(async (tx) => {
       await tx.execute(sql`SELECT 1 FROM video_courses WHERE id = ${courseId} FOR UPDATE`);
@@ -170,7 +170,7 @@ export async function addVideoToCourse(
         )
         .limit(1);
       if (exists.length > 0) {
-        return { alreadyIn: true } as const;
+        return { alreadyIn: true, id: Number(exists[0].id) } as const;
       }
 
       const rows = await tx

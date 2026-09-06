@@ -208,27 +208,18 @@ stateDiagram-v2
 stateDiagram-v2
     [*] --> Active: API Key Created
 
-    Active --> Active: Used (last_used_at updated)
-    Active --> Revoked: Revoke API Key
+    Active --> Active: Used (last_request updated)
+    Active --> [*]: Revoke API Key (Delete)
     Active --> [*]: User Deleted (CASCADE)
-
-    Revoked --> [*]: User Deleted (CASCADE)
 
     note right of Active
         Active
-        - revoked_at: NULL
-        - Can authenticate API requests
-        - last_used_at tracked
+        - enabled: true
+        - Can authenticate MCP requests
+        - last_request tracked
         - Access level enforced (all / read_only)
     end note
 
-    note right of Revoked
-        Revoked
-        - revoked_at set
-        - Cannot authenticate
-        - Record retained for audit
-        - Unique name constraint released
-    end note
 ```
 
 ---

@@ -1,0 +1,14 @@
+.git
+.env*
+.cutover-secrets
+**/node_modules
+**/dist
+**/.wrangler
+**/__pycache__
+apps/worker
+archive
+assets
+docs
+infra
+poc
+whisper.cpp

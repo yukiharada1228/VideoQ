@@ -130,6 +130,60 @@
         "lambda:UntagResource"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchAlarmManage",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:DeleteAlarms",
+        "cloudwatch:ListTagsForResource",
+        "cloudwatch:PutMetricAlarm",
+        "cloudwatch:TagResource",
+        "cloudwatch:UntagResource"
+      ],
+      "Resource": "arn:aws:cloudwatch:ap-northeast-1:<ACCOUNT_ID>:alarm:videoq-*"
+    },
+    {
+      "Sid": "MonitoringDiscovery",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:DescribeAlarms",
+        "logs:DescribeLogGroups",
+        "sns:ListTopics"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "LambdaLogGroupManage",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:DeleteLogGroup",
+        "logs:ListTagsForResource",
+        "logs:PutRetentionPolicy",
+        "logs:TagResource",
+        "logs:UntagResource"
+      ],
+      "Resource": "arn:aws:logs:ap-northeast-1:<ACCOUNT_ID>:log-group:/aws/lambda/videoq-worker-prod:*"
+    },
+    {
+      "Sid": "OperationsTopicManage",
+      "Effect": "Allow",
+      "Action": [
+        "sns:CreateTopic",
+        "sns:DeleteTopic",
+        "sns:GetSubscriptionAttributes",
+        "sns:GetTopicAttributes",
+        "sns:ListSubscriptionsByTopic",
+        "sns:ListTagsForResource",
+        "sns:SetSubscriptionAttributes",
+        "sns:SetTopicAttributes",
+        "sns:Subscribe",
+        "sns:TagResource",
+        "sns:Unsubscribe",
+        "sns:UntagResource"
+      ],
+      "Resource": "arn:aws:sns:ap-northeast-1:<ACCOUNT_ID>:videoq-operations-prod"
     }
   ]
 }

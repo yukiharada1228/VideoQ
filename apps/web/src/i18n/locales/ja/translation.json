@@ -1,0 +1,1149 @@
+{
+  "site": {
+    "title": "講義動画の検索・文字起こし | VideoQ",
+    "description": "講義動画・授業録画を文字起こしして検索。YouTubeの講義も登録できます。動画に質問すると、見たいところから再生。反転授業・オンデマンド授業の復習に。"
+  },
+  "common": {
+    "notProvided": "設定されていません",
+    "actions": {
+      "backToHome": "ホームに戻る",
+      "backToList": "一覧に戻る",
+      "create": "作成",
+      "creating": "作成中...",
+      "save": "保存",
+      "saving": "保存中...",
+      "cancel": "キャンセル",
+      "delete": "削除",
+      "deleting": "削除中...",
+      "send": "送信",
+      "disable": "無効化",
+      "confirm": "確認",
+      "close": "閉じる"
+    },
+    "labels": {
+      "required": "必須",
+      "optional": "任意"
+    },
+    "status": {
+      "pending": "待機中",
+      "processing": "処理中",
+      "indexing": "インデックス中",
+      "completed": "完了",
+      "error": "エラー"
+    },
+    "messages": {
+      "noDescription": "説明なし",
+      "videoNotFound": "動画が見つかりません",
+      "courseNotFound": "講座が見つかりません",
+      "browserNoVideoSupport": "お使いのブラウザは動画タグをサポートしていません。",
+      "shareLoadFailed": "共有講座の読み込みに失敗しました",
+      "shareNotFound": "共有講座が見つかりません",
+      "videoFileMissing": "動画ファイルがありません",
+      "copyFailed": "コピーに失敗しました。手動でコピーしてください。"
+    }
+  },
+  "tags": {
+    "filter": {
+      "title": "タグで絞り込み",
+      "clear": "クリア",
+      "selected": "{{count}}個のタグを選択中"
+    },
+    "management": {
+      "title": "タグ管理",
+      "description": "既存のタグを確認し、不要になったタグを削除できます。"
+    },
+    "selector": {
+      "label": "タグ",
+      "createNew": "新規タグ作成",
+      "noTags": "利用可能なタグがありません"
+    },
+    "create": {
+      "title": "新規タグ作成",
+      "description": "動画を整理するための新しいタグを作成します。",
+      "nameLabel": "タグ名",
+      "colorLabel": "タグの色",
+      "preview": "プレビュー",
+      "previewPlaceholder": "タグプレビュー"
+    }
+  },
+  "navigation": {
+    "home": "ホーム",
+    "videoLibrary": "ライブラリ",
+    "coursesNav": "講座",
+    "settings": "設定",
+    "pricing": "料金",
+    "logout": "ログアウト",
+    "menu": "すべてのメニュー",
+    "closeMenu": "メニューを閉じる",
+    "admin": "管理"
+  },
+  "layout": {
+    "authBranding": {
+      "tagline": "講義動画の検索・文字起こし"
+    },
+    "authFooter": "© {{year}} VideoQ"
+  },
+  "home": {
+    "welcome": {
+      "badge": "ホーム",
+      "greeting": "{{username}}さん",
+      "dailyMotivation": "動画はライブラリに登録し、講座ではその中から選んでまとめます。"
+    },
+    "actions": {
+      "sectionTitle": "利用メニュー",
+      "upload": {
+        "title": "動画を登録",
+        "descriptionLong": "授業・研修動画を登録し、自動文字起こしを開始します。"
+      },
+      "library": {
+        "title": "ライブラリ",
+        "descriptionLong": "登録済みの動画（{{count}}本）を確認・編集・共有できます。"
+      },
+      "courses": {
+        "title": "講座管理",
+        "descriptionLong": "講座（{{count}}件）を管理します。"
+      }
+    },
+    "stats": {
+      "summaryTitle": "概要",
+      "processing": "処理中",
+      "totalVideos": "総動画数",
+      "analysisCompleted": "分析完了",
+      "courses": "講座数"
+    },
+    "recentVideos": {
+      "title": "最近アップロードした動画",
+      "viewAll": "すべて表示"
+    },
+    "usage": {
+      "title": "利用状況",
+      "description": "現在の利用量と上限",
+      "upgrade": "プランをアップグレード"
+    }
+  },
+  "landing": {
+    "badge": "授業録画の文字起こし・検索",
+    "title": "講義動画を検索して、見たいところから再生",
+    "lead": "講義動画や授業録画に質問すると、見たいところから再生できます。YouTubeの講義URLでも使えます。",
+    "start": "無料で始める",
+    "tryOwn": "自分の講義で試す",
+    "login": "ログイン",
+    "startNote": "無料で始められます。クレジットカードは不要です。",
+    "demo": {
+      "title": "質問すると、その場面から再生される",
+      "intro": "VideoQが用意したデモ講義です。登録しなくても質問でき、回答の時間を押すとその場面から再生されます。",
+      "greeting": "これはVideoQが作成したデモ講義です。下の質問を押すか、同じ内容を入力してください。",
+      "fallback": "このデモでは用意した質問に答えます。自分の講義を登録すると、内容について自由に質問できます。",
+      "play": "再生",
+      "pause": "一時停止",
+      "timeline": "再生位置",
+      "lectureTitle": "授業録画の見返し方",
+      "scenes": {
+        "hard": {
+          "title": "見返すのに時間がかかる",
+          "body": "授業録画を残しても、見たい説明を探すために最初から見直すことになります。"
+        },
+        "jump": {
+          "title": "質問すると、その場面へ",
+          "body": "講義に質問すると、該当する箇所から再生できます。タイムラインを手で探す必要はありません。"
+        },
+        "own": {
+          "title": "自分の講義でも同じ",
+          "body": "手元の授業録画を登録すれば、同じように質問して見たいところから再生できます。"
+        }
+      },
+      "questions": {
+        "hard": "授業録画の見返しで何が大変？",
+        "jump": "質問するとどうなる？",
+        "own": "自分の講義でも使える？"
+      },
+      "answers": {
+        "hard": "授業録画を残しても、見たい説明を探すのに時間がかかります。",
+        "jump": "講義に質問すると、該当する場面から再生できます。",
+        "own": "自分の授業録画を登録すれば、同じように質問できます。"
+      }
+    },
+    "features": {
+      "title": "講義動画を検索し、質問できる",
+      "intro": "VideoQは、講義動画や授業録画をあとから検索するための学習サービスです。会議の文字起こしではなく、授業を見返すためのツールです。動画に質問して、該当する箇所から再生できます。",
+      "ask": {
+        "title": "動画に質問して、見たいところへ",
+        "body": "「線形代数とは？」「固有値の求め方は？」といった聞き方で、講義動画の見たいところを開けます。タイムラインを手で探す代わりに、質問から再生位置へ移動します。"
+      },
+      "transcribe": {
+        "title": "授業録画を自動で文字起こし",
+        "body": "講義動画や研修動画を登録すると、自動で文字起こしされます。その文字起こしが、検索と質問の土台になります。手元の授業録画だけでなく、YouTubeの講義URLでも同じように使えます。"
+      },
+      "share": {
+        "title": "講義動画をクラスで共有",
+        "body": "授業録画を講座にまとめて、クラスや研修チームへ共有できます。学習者は同じ講義動画に質問でき、教員は配布した教材を一箇所で管理できます。"
+      },
+      "analytics": {
+        "title": "学生の質問から、分からない箇所を見る",
+        "body": "学生が講義動画に何を質問したかの傾向を確認できます。次の授業で補う箇所や、分かりにくかった説明を、質問の記録から把握できます。"
+      }
+    },
+    "steps": {
+      "title": "授業録画の文字起こしから始める",
+      "intro": "アカウント登録のあと、講義動画の文字起こしまで3ステップです。クレジットカードは不要です。",
+      "upload": {
+        "title": "講義動画を登録する",
+        "body": "授業録画のファイルを上げるか、YouTubeの講義URLを登録します。講座にまとめておくと、あとからクラスへ配布しやすくなります。"
+      },
+      "index": {
+        "title": "文字起こしが終わるのを待つ",
+        "body": "処理が終わると、講義動画の内容を検索したり、動画に質問したりできます。進捗はライブラリから確認できます。"
+      },
+      "ask": {
+        "title": "動画に質問して再生する",
+        "body": "見たいところを言葉で聞きます。回答とともに該当シーンへジャンプできるので、長い授業録画でも必要な箇所だけ復習できます。"
+      }
+    },
+    "uses": {
+      "title": "講義録画の復習と反転授業",
+      "intro": "個人のノート整理より、教育機関や研修担当が授業録画を「あとから検索できる教材」にする用途に向いています。",
+      "lectures": {
+        "title": "講義録画を検索して復習する",
+        "body": "大学や専門学校の授業録画を登録すると、学生は講義動画を検索して「線形代数とは？」と聞けます。通し視聴ではなく、分からない点からの復習が中心になります。"
+      },
+      "flipped": {
+        "title": "反転授業・オンデマンド授業の復習",
+        "body": "予習用の動画教材を先に配り、学生がつまずいた質問を次の対面授業までに確認できます。オンデマンド授業でも、説明が届いていない箇所を授業前に把握できます。"
+      }
+    },
+    "next": {
+      "title": "料金プラン",
+      "intro": "無料で講義動画の文字起こしと検索を試せます。利用量に合うプランを確認できます。",
+      "pricing": {
+        "title": "料金プラン",
+        "body": "無料枠の範囲と、個人利用・ヘビー利用の有料プランを確認できます。"
+      }
+    }
+  },
+  "videos": {
+    "goToLibrary": "ライブラリを開く",
+    "list": {
+      "title": "ライブラリ",
+      "uploadButton": "動画をアップロード",
+      "statsRow": {
+        "all": "全体",
+        "completed": "完了",
+        "pending": "保留中",
+        "processing": "処理中",
+        "indexing": "インデックス中"
+      },
+      "searchPlaceholder": "動画を検索...",
+      "sortLabel": "並び替え:",
+      "sort": {
+        "uploadedDesc": "アップロード順 ↓",
+        "uploadedAsc": "アップロード順 ↑",
+        "titleAsc": "タイトル順"
+      },
+      "filter": {
+        "all": "すべて",
+        "completed": "分析完了",
+        "processing": "処理中",
+        "error": "エラー"
+      },
+      "manageTags": "タグ管理",
+      "managingCount": "{{count}}本の動画を管理中",
+      "noVideos": "動画がありません",
+      "noVideosHint": "「動画をアップロード」からライブラリに追加できます。講座に入れるときは、講座画面でライブラリから選びます。",
+      "loadingMore": "読み込み中..."
+    },
+    "upload": {
+      "title": "動画をアップロード",
+      "description": "動画ファイルをアップロードして管理できます。",
+      "fileLabel": "ファイル",
+      "titleLabel": "タイトル *",
+      "descriptionLabel": "説明",
+      "youtubeUrlLabel": "YouTube URL",
+      "modes": {
+        "file": "ファイルアップロード",
+        "youtube": "YouTube URL登録"
+      },
+      "success": "アップロード成功！",
+      "upload": "アップロード",
+      "uploading": "アップロード中...",
+      "validation": {
+        "noFile": "ファイルを選択してください",
+        "noYoutubeUrl": "YouTube URLを入力してください",
+        "noTitle": "タイトルを入力してください",
+        "invalidFileType": "対応している動画ファイルを選択してください",
+        "fileTooLarge": "選択したファイルはアップロード上限（{{max_size_mb}} MB）を超えています",
+        "storageLimitExceeded": "ストレージ超過のためアップロードできません。動画を削除してストレージを空けてください。"
+      },
+      "warning": {
+        "tagsFailed": "動画はアップロードされましたが、タグを追加できませんでした。タグは後から動画詳細で追加できます。"
+      }
+    },
+    "detail": {
+      "video": "動画",
+      "editTitleLabel": "タイトル",
+      "editDescriptionLabel": "説明",
+      "saving": "保存中...",
+      "cancel": "キャンセル",
+      "editButton": "編集",
+      "deleteButton": "削除",
+      "transcriptSection": "文字起こし",
+      "editTranscriptButton": "編集",
+      "saveTranscriptButton": "保存",
+      "transcriptSearchPlaceholder": "検索...",
+      "statusSection": "ステータス",
+      "transcriptNotFound": "検索結果が見つかりませんでした",
+      "pipeline": {
+        "upload": "アップロード",
+        "transcript": "文字起こし",
+        "aiAnalysis": "AI分析"
+      },
+      "transcriptStatus": {
+        "pending": "文字起こし待機中...",
+        "processing": "文字起こし処理中...",
+        "indexing": "インデックス構築中...",
+        "error": "文字起こしに失敗しました",
+        "unavailable": "文字起こしはまだありません"
+      }
+    },
+    "courses": {
+      "title": "講座",
+      "subtitle": "ライブラリの動画を講座にまとめて、管理・共有できます",
+      "emptyDescription": "講座はライブラリにある動画を選んで作ります。先にライブラリへ動画を登録してください。",
+      "optional": "（任意）",
+      "create": "新しい講座を作成",
+      "createTitle": "新しい講座を作成",
+      "nameLabel": "講座名",
+      "namePlaceholder": "講座名",
+      "descriptionLabel": "説明",
+      "descriptionPlaceholder": "説明（任意）",
+      "createError": "講座の作成に失敗しました",
+      "empty": "講座がありません",
+      "dragHandle": "ドラッグして並べ替え",
+      "open": "{{name}}を開く",
+      "moveUp": "{{name}}を上へ移動",
+      "moveDown": "{{name}}を下へ移動",
+      "joinedTitle": "参加中の講座",
+      "memberBadge": "参加メンバー",
+      "loadingMore": "読み込み中...",
+      "videoCount_one": "{{count}}個の動画",
+      "videoCount_other": "{{count}}個の動画"
+    },
+    "courseDetail": {
+      "pickFromLibrary": "ライブラリから選ぶ",
+      "pickFromLibraryDescription": "この講座に入れる動画を、ライブラリから選択してください。",
+      "delete": "削除",
+      "removeVideoConfirm": "この動画を講座から削除しますか？",
+      "addError": "動画の追加に失敗しました",
+      "removeVideoError": "動画の削除に失敗しました",
+      "share": {
+        "title": "講座を共有",
+        "enabled": "この講座は共有リンクで公開されています。",
+        "disabled": "共有リンクを生成すると、ログインなしで閲覧できるようになります。"
+      },
+      "shareOpen": "共有",
+      "generating": "生成中...",
+      "copied": "コピー済み ✓",
+      "disable": "無効化",
+      "generateShareError": "共有リンクの生成に失敗しました",
+      "disableShareError": "共有リンクの削除に失敗しました",
+      "searchPlaceholder": "タイトル/説明を検索",
+      "statusFilter": {
+        "all": "すべてのステータス",
+        "completed": "完了",
+        "processing": "処理中",
+        "indexing": "インデックス中",
+        "pending": "待機中",
+        "error": "エラー"
+      },
+      "ordering": {
+        "uploadedDesc": "新しい順",
+        "uploadedAsc": "古い順",
+        "titleAsc": "タイトル昇順",
+        "titleDesc": "タイトル降順"
+      },
+      "selectAll": "全選択",
+      "clearSelection": "選択解除",
+      "noAvailableVideos": "この講座に追加できる動画がライブラリにありません",
+      "noAvailableVideosHint": "先にライブラリでアップロードするか、絞り込み条件を外してください。",
+      "add": "追加",
+      "adding": "追加中...",
+      "addResult": "{{added}}個の動画を追加しました（{{skipped}}個は既に追加済みでした）",
+      "orderUpdateError": "動画の順序更新に失敗しました",
+      "mobileTabs": {
+        "videos": "動画一覧",
+        "player": "プレイヤー"
+      },
+      "playerPlaceholder": "動画一覧から動画を選択してください",
+      "videoNoFile": "動画ファイルがありません",
+      "videoListTitle": "動画一覧",
+      "videoListEmpty": "この講座にはまだ動画がありません",
+      "videoListEmptyHint": "ライブラリから選ぶか、先にライブラリでアップロードしてください。",
+      "videoCount": "全{{count}}本",
+      "editTitle": "講座を編集",
+      "editDescription": "講座名と説明を更新します。",
+      "shareLinkLabel": "共有リンク:",
+      "shareSlugPlaceholder": "共有リンクを入力",
+      "shareSlugHelp": "3〜64文字。英小文字、数字、ハイフンのみ使えます",
+      "copyButton": "コピー",
+      "removeFromCourse": "講座から削除",
+      "deleteError": "講座の削除に失敗しました",
+      "leave": "講座から退出",
+      "leaveError": "講座から退出できませんでした"
+    },
+    "courseMembers": {
+      "title": "メンバーと招待を管理",
+      "open": "メンバー管理",
+      "emailLabel": "招待するメールアドレス",
+      "emailPlaceholder": "student@example.com",
+      "emailHelp": "複数のメールアドレスは改行、カンマ、またはセミコロンで区切って入力できます。招待の有効期限は7日間です。",
+      "previewTitle": "送信前の確認",
+      "previewSummary": "全{{total}}件のうち、{{count}}件に招待を送信します。",
+      "preview": {
+        "ready": "送信対象"
+      },
+      "invite": "招待メールを送信",
+      "membersTitle": "参加メンバー",
+      "invitationsTitle": "招待履歴",
+      "noMembers": "参加メンバーはいません。",
+      "noInvitations": "招待履歴はありません。",
+      "remove": "メンバーから削除",
+      "resend": "再送",
+      "revoke": "取り消す",
+      "result": {
+        "queued": "送信待ち",
+        "already_member": "参加済み",
+        "already_invited": "招待済み",
+        "invalid": "無効なアドレス",
+        "duplicate": "重複"
+      },
+      "status": {
+        "pending": "承認待ち",
+        "accepted": "承認済み",
+        "declined": "辞退済み",
+        "expired": "期限切れ",
+        "revoked": "取り消し済み"
+      },
+      "delivery": {
+        "queued": "送信待ち",
+        "sent": "メール送信済み",
+        "failed": "メール送信失敗"
+      }
+    },
+    "shared": {
+      "tabs": {
+        "videos": "動画一覧",
+        "player": "プレイヤー"
+      },
+      "playerPlaceholder": "動画一覧から動画を選択してください",
+      "videoNoFile": "動画ファイルがありません",
+      "noVideos": "動画がありません",
+      "publicBadge": "公開共有リンク"
+    }
+  },
+  "courseInvitation": {
+    "badge": "講座への招待",
+    "title": "招待内容を確認",
+    "description": "招待先の確認済みメールアドレスと一致するアカウントで参加できます。",
+    "inviter": "招待者",
+    "recipient": "招待先メールアドレス",
+    "notFound": "この招待は見つからないか、利用できません。",
+    "accept": "招待を承認して参加",
+    "openCourse": "講座を開く",
+    "decline": "辞退する",
+    "declined": "招待を辞退しました。",
+    "authRequired": "承認または辞退するには、招待されたメールアドレスのアカウントでログインしてください。",
+    "login": "ログインして続ける",
+    "signup": "アカウントを作成",
+    "status": {
+      "pending": "承認待ち",
+      "accepted": "承認済み",
+      "declined": "辞退済み",
+      "expired": "期限切れ",
+      "revoked": "取り消し済み"
+    },
+    "terminal": {
+      "accepted": "この招待はすでに承認されています。",
+      "declined": "この招待は辞退されています。",
+      "expired": "この招待は期限切れです。招待者に再招待を依頼してください。",
+      "revoked": "この招待は招待者によって取り消されました。"
+    }
+  },
+  "auth": {
+    "consent": {
+      "title": "アプリケーションを認可",
+      "body": "{{name}} がVideoQアカウントへのアクセスを要求しています。",
+      "permissions": "要求されている権限",
+      "readPermission": "動画、講座、チャット履歴、分析結果の閲覧",
+      "writePermission": "動画のアップロード・登録、講座の作成・動画追加",
+      "accept": "許可",
+      "deny": "拒否"
+    },
+    "login": {
+      "title": "ログイン",
+      "badge": "おかえりなさい",
+      "submit": "ログイン",
+      "submitting": "ログイン中...",
+      "orDivider": "または",
+      "continueWithGoogle": "Googleで続行",
+      "googleRedirecting": "Googleへ移動中...",
+      "googleFailed": "Googleログインに失敗しました",
+      "oauthCallbackFailed": "Googleログインに失敗しました。もう一度お試しください。",
+      "footerQuestion": "アカウントをお持ちでない方は",
+      "footerLink": "こちらから登録",
+      "forgotPassword": "パスワードをお忘れですか？"
+    },
+    "signup": {
+      "title": "新規登録",
+      "badge": "はじめまして",
+      "submit": "新規登録する",
+      "submitting": "登録中...",
+      "orDivider": "または",
+      "continueWithGoogle": "Googleで登録",
+      "footerQuestion": "すでにアカウントをお持ちの方は",
+      "footerLink": "こちらからログイン",
+      "passwordMismatch": "パスワードが一致しません"
+    },
+    "checkEmail": {
+      "badge": "アカウント登録",
+      "title": "メールをご確認ください",
+      "description": "ご登録いただいたメールアドレス宛に確認メールを送信しました。受信トレイまたは迷惑メールフォルダーをご確認のうえ、記載のリンクをクリックして登録を完了してください。",
+      "alert": "確認リンクの有効期限が切れる前にメールを開いてください。",
+      "help": "メールが届かない場合は、しばらく待ってから再度お試しください。それでも届かない場合はサポートまでご連絡ください。",
+      "backToLogin": "ログイン画面に戻る"
+    },
+    "forgotPassword": {
+      "badge": "パスワードリセット",
+      "noAccount": "アカウントをお持ちでないですか？",
+      "signUp": "新規登録",
+      "title": "パスワードをお忘れですか？",
+      "description": "登録済みのメールアドレスを入力すると、パスワード再設定用のリンクをメールでお送りします。",
+      "success": "パスワードリセット用のメールを送信しました。数分待っても届かない場合は迷惑メールフォルダをご確認ください。",
+      "submit": "リセットリンクを送信",
+      "submitting": "送信中...",
+      "backToLogin": "ログイン画面に戻る"
+    },
+    "resetPassword": {
+      "badge": "パスワードリセット",
+      "title": "新しいパスワードの設定",
+      "description": "安全な新しいパスワードを入力してください。",
+      "invalidLink": "リセットリンクが無効です。もう一度パスワードリセットを実行してください。",
+      "passwordMismatch": "パスワードが一致しません",
+      "success": "パスワードをリセットしました。新しいパスワードでログインしてください。",
+      "submit": "パスワードを更新",
+      "submitting": "更新中...",
+      "backToLogin": "ログイン画面に戻る",
+      "newPassword": "新しいパスワード",
+      "confirmPassword": "新しいパスワード（確認）"
+    },
+    "verifyEmail": {
+      "badge": "メール認証",
+      "title": "メール認証",
+      "description": "登録されたメールアドレスを確認し、アカウントの有効化を進めています。",
+      "loading": "メール認証を確認しています...",
+      "invalidLink": "無効な認証リンクです。",
+      "success": "メール認証が完了しました。ログインしてください。",
+      "redirectLink": "こちら",
+      "error": "メール認証に失敗しました。リンクの有効期限が切れている可能性があります。",
+      "retry": "リンクが無効の場合は、再度新規登録を行うかサポートまでお問い合わせください。",
+      "backToLogin": "ログイン画面に戻る",
+      "redirectPart1": "まもなくログイン画面に移動します。移動しない場合は"
+    },
+    "emailChange": {
+      "badge": "メールアドレス変更",
+      "title": "メールアドレス変更の確認",
+      "description": "新しいメールアドレスを確認しています。",
+      "loading": "メールアドレス変更リンクを確認しています...",
+      "invalidLink": "メールアドレス変更リンクが無効です。",
+      "success": "メールアドレスを更新しました。",
+      "error": "メールアドレス変更に失敗しました。リンクの有効期限が切れている可能性があります。",
+      "backToLogin": "ログイン画面に戻る"
+    },
+    "fields": {
+      "email": {
+        "label": "メールアドレス"
+      },
+      "username": {
+        "label": "ユーザー名"
+      },
+      "password": {
+        "label": "パスワード",
+        "show": "パスワードを表示",
+        "hide": "パスワードを隠す",
+        "minLengthHint": "{{min}}文字以上で入力してください。"
+      },
+      "passwordConfirmation": {
+        "label": "パスワード（確認）"
+      }
+    }
+  },
+  "chat": {
+    "title": "チャット",
+    "teacher": "教師",
+    "newConsultation": "新規相談",
+    "history": "会話履歴",
+    "historyEmpty": "履歴はありません",
+    "sharedLinkUser": "共有リンク利用者",
+    "exportCsvShort": "CSV",
+    "feedbackGood": "Good",
+    "feedbackBad": "Bad",
+    "placeholder": "メッセージを入力...",
+    "suggestedQuestions": "よくある質問",
+    "assistantGreeting": "こんにちは！動画に関する質問にお答えします。何か質問はありますか？",
+    "studyGreeting": "学習モードです。答えをすぐには教えず、講義の前提に沿って一緒に考えていきましょう。",
+    "modeQa": "通常",
+    "modeStudy": "学習",
+    "error": "チャットでエラーが発生しました。",
+    "errorOverQuota": "ストレージ超過のためAIチャットを利用できません。動画を削除してストレージを空けてください。",
+    "errorPlogNotReady": "学習用の知識グラフがまだ準備できていません。構築完了後、学習パスになる前提／発展の関係があるか確認し、サイクルがあれば編集・削除で解消してから再度お試しください。",
+    "evaluation": {
+      "status": {
+        "pending": "評価中",
+        "completed": "評価済み",
+        "failed": "評価できませんでした"
+      },
+      "metrics": {
+        "faithfulness": "根拠との一致",
+        "answerRelevancy": "質問への関連度",
+        "contextPrecision": "参照情報の的確さ"
+      }
+    }
+  },
+  "validation": {
+    "required": "この項目は必須です"
+  },
+  "confirmations": {
+    "deleteVideo": "この動画を削除しますか？",
+    "deleteCourse": "この講座を削除しますか？",
+    "disableShareLink": "共有リンクを無効化しますか？",
+    "leaveCourse": "「{{name}}」から退出しますか？",
+    "leaveCourseDescription": "退出すると、この講座の動画とチャットを閲覧できなくなります。再び参加するには、新しい招待が必要です。"
+  },
+  "pricing": {
+    "title": "料金プラン",
+    "subtitle": "お試しの Free から、個人向け Basic、ヘビー利用の Pro まで。年払いは 2 ヶ月分お得です。",
+    "monthly": "月額",
+    "yearly": "年額",
+    "freePrice": "¥0",
+    "perMonth": "/月",
+    "perYear": "/年",
+    "currentPlan": "現在のプラン",
+    "startFree": "無料で始める",
+    "signUpToSubscribe": "登録して申し込む",
+    "subscribe": "このプランに申し込む",
+    "manage": "支払いを管理",
+    "changePlan": "プランを変更",
+    "canceled": "チェックアウトをキャンセルしました。",
+    "checkoutError": "チェックアウトを開始できませんでした。",
+    "limits": {
+      "storage": "ストレージ {{gb}} GB",
+      "processing": "文字起こし {{minutes}} 分/月",
+      "answers": "AI回答 {{count}} 回/月",
+      "upload": "1本あたり {{mb}} MB"
+    },
+    "plans": {
+      "free": {
+        "name": "Free",
+        "blurb": "講義1本を上げて、内容を検索・質問してみるお試し枠です。"
+      },
+      "basic": {
+        "name": "Basic",
+        "blurb": "毎週の講義を上げて、あとから質問できる個人利用向け。"
+      },
+      "pro": {
+        "name": "Pro",
+        "blurb": "講義・研修をまとめて入れるヘビー利用向け。"
+      }
+    },
+    "legalNotice": "有料プランの申し込み前に、次のページを確認してください。"
+  },
+  "legal": {
+    "terms": {
+      "title": "利用規約",
+      "updated": "最終更新: 2026年8月22日",
+      "sections": {
+        "scope": {
+          "title": "1. 適用",
+          "body": "本規約は、VideoQ（https://videoq.jp）が提供する AI 動画学習サービス（以下「本サービス」）の利用条件です。アカウント登録または本サービスの利用により、本規約に同意したものとみなします。"
+        },
+        "account": {
+          "title": "2. アカウント",
+          "body": "利用者は正確な情報で登録し、認証情報を自己の責任で管理します。第三者へのアカウント譲渡はできません。運営は、不正利用や規約違反がある場合にアカウントを停止できます。"
+        },
+        "plans": {
+          "title": "3. プランと利用枠",
+          "body": "本サービスは Free / Basic / Pro のプランを提供します。各プランのストレージ、文字起こし時間、AI 回答回数、1本あたりのアップロード上限は料金ページの表示が正本です。Free は無償のお試し枠です。ダウングレード後も既存の動画やチャットは削除しませんが、新しい上限を超えている場合は追加のアップロード・文字起こし・AI 回答を制限します。"
+        },
+        "payment": {
+          "title": "4. 料金と決済",
+          "body": "有料プランの料金は日本円・税込表示です。決済は Stripe が処理します。VideoQ はカード番号を保持しません。月額は毎月、年額は毎年、登録した支払方法に請求します。プラン変更時の日割りは Stripe Customer Portal の設定（即時請求）に従います。"
+        },
+        "cancel": {
+          "title": "5. 解約",
+          "body": "解約は設定画面または Stripe Customer Portal から行えます。解約は原則として現在の課金期間の末日に効力を生じ、その日まで有料プランの枠を利用できます。期間途中の未使用分の返金は、返金ポリシーに定める場合を除き行いません。"
+        },
+        "acceptableUse": {
+          "title": "6. 禁止事項",
+          "body": "法令違反、第三者の権利侵害、本サービスの妨害、不正アクセス、過度な自動リクエスト、または運営が不適切と判断する利用を禁止します。アップロードした動画・質問内容について、利用者は必要な権利を有している必要があります。"
+        },
+        "data": {
+          "title": "7. データ",
+          "body": "アップロードした動画、文字起こし、チャット履歴の取扱いはプライバシーポリシーに従います。決済情報の取扱いは Stripe のプライバシーポリシー（https://stripe.com/privacy）に従います。"
+        },
+        "liability": {
+          "title": "8. 免責",
+          "body": "本サービスは現状有姿で提供します。文字起こしや AI 回答の正確性を保証しません。法律で排除できない責任を除き、運営の損害賠償は当該利用者が直近 3 か月に支払った利用料金を上限とします。"
+        },
+        "changes": {
+          "title": "9. 変更",
+          "body": "運営は本規約を変更できます。重要な変更は本サービス上または登録メールで知らせます。変更後に利用を続けた場合、変更に同意したものとみなします。"
+        },
+        "contact": {
+          "title": "10. 連絡先",
+          "body": "本規約に関する問い合わせは yukiharada1228@gmail.com までお願いします。事業者情報は特定商取引法に基づく表記を参照してください。"
+        }
+      }
+    },
+    "privacy": {
+      "title": "プライバシーポリシー",
+      "updated": "最終更新: 2026年8月22日",
+      "sections": {
+        "controller": {
+          "title": "1. 事業者",
+          "body": "VideoQ（https://videoq.jp）は、本サービスの提供に伴い取得する個人情報を、このポリシーに従って取り扱います。問い合わせ先は yukiharada1228@gmail.com です。"
+        },
+        "collect": {
+          "title": "2. 取得する情報",
+          "body": "アカウント情報（メールアドレス、表示名）、認証情報、アップロードした動画とそのメタデータ、文字起こし、チャット内容、利用量、ブラウザや端末に関する技術情報、および決済に必要な請求先情報を取得します。カード番号は Stripe が処理し、VideoQ のサーバーには保存しません。"
+        },
+        "stripe": {
+          "title": "3. Stripe への提供",
+          "body": "有料プランの決済、サブスクリプション管理、不正防止のため、氏名・メール・請求先住所・顧客 ID・利用プランに関する情報を Stripe に提供します。Stripe の取扱いは https://stripe.com/privacy を確認してください。"
+        },
+        "purpose": {
+          "title": "4. 利用目的",
+          "body": "取得した情報は、本サービスの提供、文字起こしと AI 回答、課金、不正防止、サポート、法令遵守、サービス改善のために利用します。同意なく、これらと無関係な目的には使いません。"
+        },
+        "share": {
+          "title": "5. 第三者提供",
+          "body": "法令に基づく場合、またはサービス提供に必要な処理委託先（クラウド、決済、メール配信など）を除き、個人情報を第三者に販売しません。委託先には必要な範囲でのみ情報を渡し、適切な管理を求めます。"
+        },
+        "retention": {
+          "title": "6. 保管期間",
+          "body": "アカウントが有効な間、サービス提供に必要な期間保管します。アカウント削除後は、法令で保管が必要な場合を除き、合理的な期間内に削除または匿名化します。Stripe 側に残る決済記録は Stripe の保管方針に従います。"
+        },
+        "rights": {
+          "title": "7. 開示・訂正・削除",
+          "body": "利用者は、自己の個人情報について開示、訂正、利用停止、削除を求められます。yukiharada1228@gmail.com まで連絡してください。本人確認のうえ、法令の範囲で対応します。"
+        },
+        "cookies": {
+          "title": "8. Cookie",
+          "body": "ログイン状態の維持、セキュリティ、利用状況の把握のために Cookie および類似技術を使います。ブラウザ設定で拒否できますが、その場合は一部機能が使えません。"
+        },
+        "contact": {
+          "title": "9. 問い合わせ",
+          "body": "プライバシーに関する問い合わせは yukiharada1228@gmail.com までお願いします。"
+        }
+      }
+    },
+    "refund": {
+      "title": "返金・解約ポリシー",
+      "updated": "最終更新: 2026年8月22日",
+      "sections": {
+        "summary": {
+          "title": "概要",
+          "body": "VideoQ の有料プランはデジタルサービス（SaaS）です。物理的な返品はありません。解約と返金の扱いは次のとおりです。"
+        },
+        "digital": {
+          "title": "デジタルサービスの性質",
+          "body": "支払い完了後、直ちにアカウントへ有料プランの利用枠を付与します。役務の提供は決済完了時点で開始します。"
+        },
+        "cancel": {
+          "title": "解約",
+          "body": "設定の課金セクション、または Stripe Customer Portal からいつでも解約できます。解約は現在の課金期間の末日に効力を生じます。その日まで有料プランを利用でき、期間終了後は Free 枠に戻ります。期間途中の未使用分は、原則として返金しません。"
+        },
+        "upgrade": {
+          "title": "プラン変更",
+          "body": "Basic と Pro、月額と年額の変更は Customer Portal で行えます。アップグレード等の差額は日割りで即時請求します。"
+        },
+        "howto": {
+          "title": "返金を希望する場合",
+          "body": "重複課金、決済エラー、法令で返金が必要な場合は yukiharada1228@gmail.com へ、対象アカウントと経緯を書いて連絡してください。内容を確認のうえ対応します。カード会社経由のチャージバックは、まず上記窓口へ連絡してください。"
+        },
+        "contact": {
+          "title": "連絡先",
+          "body": "返金・解約の問い合わせ: yukiharada1228@gmail.com"
+        }
+      }
+    },
+    "scta": {
+      "title": "特定商取引法に基づく表記",
+      "shortTitle": "特商法表記",
+      "updated": "通信販売（デジタルサービス）としての表示です。",
+      "fields": {
+        "seller": {
+          "label": "販売業者",
+          "value": "VideoQ"
+        },
+        "operator": {
+          "label": "運営統括責任者",
+          "value": "請求があり次第、遅滞なく開示します。"
+        },
+        "address": {
+          "label": "所在地",
+          "value": "日本国内。詳細は請求があり次第、遅滞なく開示します。"
+        },
+        "phone": {
+          "label": "電話番号",
+          "value": "請求があり次第、遅滞なく開示します。日常の連絡はメールで受け付けます。"
+        },
+        "email": {
+          "label": "メールアドレス",
+          "value": "yukiharada1228@gmail.com"
+        },
+        "url": {
+          "label": "サイト",
+          "value": "https://videoq.jp"
+        },
+        "price": {
+          "label": "販売価格",
+          "value": "料金ページ（https://videoq.jp/pricing）の表示金額。日本円・税込。Free は ¥0、Basic は ¥1,480/月 または ¥14,800/年、Pro は ¥3,980/月 または ¥39,800/年。"
+        },
+        "fees": {
+          "label": "商品代金以外の必要料金",
+          "value": "インターネット接続料など、利用環境の費用は利用者負担です。決済手数料は表示価格に含みます。"
+        },
+        "payment": {
+          "label": "支払方法・時期",
+          "value": "クレジットカード等、Stripe が Checkout で提示する決済手段。初回は申し込み時、以降は契約周期ごと（月額は毎月、年額は毎年）に自動課金します。"
+        },
+        "delivery": {
+          "label": "役務の提供時期",
+          "value": "決済完了後、ただちに有料プランの利用枠をアカウントへ適用します。物理的な配送はありません。"
+        },
+        "cancel": {
+          "label": "返品・キャンセル",
+          "value": "デジタルサービスのため返品はありません。解約は設定または Stripe Customer Portal から行え、原則として期間末に効力を生じます。詳細は返金・解約ポリシーを参照してください。"
+        }
+      }
+    }
+  },
+  "settings": {
+    "title": "設定",
+    "subtitle": "アカウントと統合の設定を管理します",
+    "billing": {
+      "title": "プランと支払い",
+      "description": "現在のプランの確認と、支払い方法・解約の管理ができます。",
+      "currentPlan": "現在のプラン",
+      "viewPlans": "料金プランを見る",
+      "manage": "支払いポータルを開く",
+      "success": "お支払いが完了しました。プランが反映されるまで数秒かかることがあります。",
+      "pastDue": "お支払いに失敗しています。支払い方法を更新してください。"
+    },
+    "usernameChange": {
+      "title": "ユーザー名",
+      "description": "Googleログインではメールアドレスの一部がユーザー名になることがあります。あとから好きな名前に変更できます。",
+      "currentUsernameLabel": "現在のユーザー名",
+      "newUsernameLabel": "新しいユーザー名",
+      "help": "3〜150文字の英数字、アンダースコア、ピリオドが使えます。大文字は小文字として保存されます。ユーザー名はログインにも使われます。",
+      "submit": "ユーザー名を変更",
+      "submitting": "変更中...",
+      "success": "ユーザー名を変更しました",
+      "errorEmpty": "新しいユーザー名を入力してください",
+      "errorUnchanged": "現在と同じユーザー名です",
+      "errorTaken": "このユーザー名はすでに使われています",
+      "errorTooShort": "ユーザー名が短すぎます（3文字以上）",
+      "errorTooLong": "ユーザー名が長すぎます（150文字以内）",
+      "errorInvalid": "ユーザー名に使えるのは英数字、アンダースコア、ピリオドだけです",
+      "errorSubmitting": "ユーザー名の変更に失敗しました"
+    },
+    "emailChange": {
+      "title": "メールアドレス",
+      "description": "アカウントに紐づくメールアドレスを変更します。新しいメールアドレスで確認が完了するまで、現在のメールアドレスが維持されます。",
+      "currentEmailLabel": "現在のメールアドレス",
+      "newEmailLabel": "新しいメールアドレス",
+      "help": "新しいメールアドレス宛に確認リンクを送信します。確認が完了するまで現在のメールアドレスは変更されません。",
+      "submit": "確認メールを送信",
+      "submitting": "送信中...",
+      "success": "確認メールを送信しました。新しいメールアドレスの受信箱をご確認ください。",
+      "errorEmpty": "新しいメールアドレスを入力してください",
+      "errorSubmitting": "メールアドレス変更のリクエストに失敗しました"
+    },
+    "integrationApiKeys": {
+      "title": "連携用APIキー",
+      "description": "既存システム向けのシークレットキーを発行・管理します。",
+      "nameLabel": "キー名",
+      "nameHelp": "この名前は一覧にだけ表示されます。あとで見て分かる連携名にしてください。",
+      "create": "新しいシークレットキーを作成",
+      "createDialogTitle": "新しいシークレットキーを作成",
+      "createDialogDescription": "キー名を付けて、最初の権限を選択してください。",
+      "createDialogCta": "シークレットキーを作成",
+      "creating": "発行中...",
+      "generatedTitle": "このキーは今だけ表示されます。必ず安全な場所に保存してください。",
+      "generatedDialogTitle": "シークレットキーを保存してください",
+      "generatedDialogDescription": "このキーはあとから再表示できません。安全な場所に保存してください。このキーを知っている人は、あなたの代わりにAPIを実行できます。",
+      "generatedDoneCta": "保存しました",
+      "copy": "コピー",
+      "copyDone": "コピー済み",
+      "empty": "APIキーはまだありません。",
+      "neverUsed": "未使用",
+      "permissionsLabel": "権限",
+      "permissionsHelp": "書き込みを含めて使うなら All、読み取りだけに制限したいなら Read only を選んでください。",
+      "secretKeyLabel": "シークレットキー",
+      "columns": {
+        "name": "名前",
+        "secret": "シークレット",
+        "permissions": "権限",
+        "lastUsed": "最終使用",
+        "action": "操作"
+      },
+      "permissions": {
+        "allTitle": "All",
+        "allDescription": "利用可能な連携APIに対して、読み取りと書き込みの両方を許可します。",
+        "readOnlyTitle": "Read only",
+        "readOnlyDescription": "データの登録・更新・削除を行わない、読み取り系のAPIだけを使う連携向けです。"
+      },
+      "revoke": "失効",
+      "revoking": "失効中...",
+      "revokeConfirmTitle": "APIキーを失効しますか？",
+      "revokeConfirmDescription": "このキーは、既存の連携ですぐに使えなくなります。",
+      "revokeConfirmWarning": "この操作は元に戻せません。このキーを使っているシステムは、新しいキーに差し替えるまで失敗します。",
+      "revokeConfirmCta": "はい、失効します",
+      "cancel": "キャンセル",
+      "errorEmpty": "キー名を入力してください",
+      "errorLoading": "APIキーの読み込みに失敗しました",
+      "errorCreating": "APIキーの発行に失敗しました",
+      "errorRevoking": "APIキーの失効に失敗しました",
+      "errorCopying": "セキュアなブラウザ環境でのみコピーできます。",
+      "successCreated": "APIキーを発行しました",
+      "successRevoked": "APIキーを失効しました"
+    },
+    "connectedApps": {
+      "title": "連携アプリ",
+      "description": "OAuth で連携を許可したアプリ（例: Claude Desktop / claude.ai）。トークンを失効するとそのアプリは即座に切断されます。",
+      "empty": "現在連携中のアプリはありません。",
+      "columns": {
+        "app": "アプリ",
+        "scope": "スコープ",
+        "issued": "連携日時",
+        "expires": "有効期限",
+        "action": "操作"
+      },
+      "expiresNever": "—",
+      "revoke": "失効",
+      "errorLoading": "連携アプリの読み込みに失敗しました",
+      "errorRevoking": "失効に失敗しました",
+      "successRevoked": "連携を失効しました"
+    },
+    "searchApiKey": {
+      "title": "SearchAPI キー",
+      "description": "YouTube 字幕の取り込みに使う、自分用の SearchAPI キーを設定します。",
+      "usageTitle": "YouTube 取り込みで使用",
+      "usageDescription": "YouTube 動画を取り込むとき、このキーを使って SearchAPI から字幕を取得します。料金は VideoQ ではなく、設定したご自身の SearchAPI アカウントに請求されます。",
+      "apiKeyLabel": "APIキー",
+      "hasApiKeyMessage": "すでに SearchAPI キーが設定されています。新しいキーを入力すると更新されます。",
+      "noApiKeyMessage": "YouTube 動画を取り込むには、先に自分の SearchAPI キーを設定してください。",
+      "getApiKeyMessage": "APIキーは",
+      "save": "保存",
+      "saving": "保存中...",
+      "delete": "削除",
+      "deleting": "削除中...",
+      "errorEmpty": "APIキーを入力してください",
+      "errorSaving": "SearchAPI キーの保存に失敗しました",
+      "errorDeleting": "SearchAPI キーの削除に失敗しました",
+      "successSaved": "SearchAPI キーを保存しました",
+      "successDeleted": "SearchAPI キーを削除しました",
+      "configured": "設定済み"
+    }
+  },
+  "dashboard": {
+    "button": "ダッシュボード",
+    "title": "教育改善ダッシュボード",
+    "totalQuestions": "質問数: {{count}}件",
+    "dateRange": "期間: {{first}} 〜 {{last}}",
+    "empty": {
+      "title": "データがありません",
+      "description": "この講座にはまだ質問がありません。チャットで質問すると分析データが表示されます。"
+    },
+    "timeSeries": {
+      "title": "質問の推移",
+      "count": "質問数"
+    },
+    "feedback": {
+      "title": "フィードバック分析",
+      "good": "Good",
+      "bad": "Bad",
+      "none": "未評価"
+    },
+    "evaluation": {
+      "title": "RAGAS指標",
+      "evaluatedCount": "評価済み回答 {{count}}件",
+      "empty": "まだ評価された回答はありません",
+      "metrics": {
+        "faithfulness": "根拠との一致",
+        "answerRelevancy": "質問への関連度",
+        "contextPrecision": "参照情報の的確さ"
+      }
+    }
+  },
+  "quota": {
+    "usage": {
+      "storage": "ストレージ",
+      "transcription": "文字起こし",
+      "aiAnswers": "AI回答",
+      "unlimited": "無制限",
+      "min": "分",
+      "gb": "GB"
+    },
+    "errors": {
+      "overQuota": "ストレージ使用量が上限を超えています。新規アップロードとAIチャットは無効化されています。動画を削除してストレージを解放してください。"
+    }
+  },
+  "plog": {
+    "title": "学習グラフ",
+    "subtitle": "学習モードで使う前提関係と誘導用の問いを、この動画から事前に作っておきます。",
+    "build": "学習グラフを作成",
+    "rebuild": "再構築",
+    "retry": "もう一度作成",
+    "loading": "読み込み中...",
+    "loadError": "学習グラフの情報を取得できませんでした。",
+    "rebuildConfirm": "再構築すると、手動で編集した概念・関係・ヒントも含め、現在の学習グラフはすべて破棄されます。続行しますか？",
+    "statusLabel": {
+      "missing": "未作成",
+      "pending": "待機中",
+      "running": "作成中",
+      "ready": "利用可能",
+      "failed": "失敗"
+    },
+    "emptyTitle": "まだ学習グラフがありません",
+    "emptyDescription": "作成すると、チャットの学習モードで答えを先に教えず、講義の前提に沿って誘導できるようになります。初回は数分かかることがあります。",
+    "buildingTitle": "学習グラフを作成しています",
+    "buildingDescription": "完了するまでこのままお待ちください。完了後、チャットの学習モードで使えます。",
+    "failedTitle": "学習グラフの作成に失敗しました",
+    "failedDescription": "時間をおいて再度お試しください。",
+    "metricConcepts": "概念",
+    "metricEdges": "関係",
+    "metricSummaries": "要約",
+    "conceptList": "概念",
+    "edgeList": "前提関係",
+    "edgeHelp": "関係は存在するだけで学習に使われます。誤りは編集または削除してください。学習モードは前提／発展だけを使います。",
+    "introAt": "{{seconds}}秒付近",
+    "hintCount": "ヒント {{count}}",
+    "addConcept": "概念を追加",
+    "addEdge": "関係を追加",
+    "save": "保存",
+    "cancel": "キャンセル",
+    "edit": "編集",
+    "delete": "削除",
+    "deleteConceptConfirm": "この概念と関連する関係・学習オブジェクトを削除しますか？",
+    "merge": "同義語を統合",
+    "mergeIntoThis": "別の概念をこれに統合（粒度調整）",
+    "mergeSelect": "統合して消す概念を選択…",
+    "mergeConceptConfirm": "選択した概念をこれに統合しますか？辺と学習オブジェクトを引き継ぎ、統合元は削除されます。",
+    "deleteEdgeConfirm": "この関係を削除しますか？",
+    "label": "ラベル",
+    "nodeTypeLabel": "種別",
+    "introSec": "導入秒",
+    "sourceQuote": "根拠引用",
+    "openingQuestion": "開始の問い",
+    "hintLadder": "ヒント梯子（1行1件）",
+    "misconceptions": "誤概念（1行1件）",
+    "canonicalOrder": "標準手順（1行1件）",
+    "workedExamples": "例題（1行1件）",
+    "waypoints": "ウェイポイント",
+    "noHints": "ヒントなし",
+    "quote": "根拠",
+    "source": "始点",
+    "target": "終点",
+    "edgeTypeLabel": "関係種別",
+    "expand": "詳細を開く",
+    "collapse": "閉じる",
+    "saveError": "保存に失敗しました。",
+    "nodeType": {
+      "object": "対象",
+      "property": "性質",
+      "limitation": "限界"
+    },
+    "edgeType": {
+      "prerequisite_of": "前提",
+      "builds_on": "発展",
+      "analogy_for": "類推",
+      "example_of": "例",
+      "contrasts_with": "対比"
+    }
+  },
+  "admin": {
+    "title": "管理",
+    "description": "ユーザーのクォータ調整と埋め込み再索引のためのスーパーユーザー向け管理画面です。",
+    "users": {
+      "title": "ユーザー",
+      "description": "ユーザーを検索し、クォータや利用量を調整します。",
+      "searchLabel": "検索",
+      "searchPlaceholder": "ユーザー名またはメール",
+      "search": "検索",
+      "empty": "ユーザーが見つかりません",
+      "pageRange": "{{total}} 件中 {{from}}–{{to}}",
+      "prev": "前へ",
+      "next": "次へ",
+      "edit": "編集",
+      "editTitle": "{{username}} を編集",
+      "delete": "削除",
+      "deleteTitle": "{{username}} を削除しますか？",
+      "deleteBody": "アカウントを直ちに無効化し、動画・講座・タグ・チャット履歴・ユーザー本体を完全に削除します。この操作は取り消せません。",
+      "deleteConfirm": "ユーザーを削除",
+      "deleteSuccess": "{{username}} の削除を開始しました（{{jobId}}）。",
+      "deleteError": "ユーザーの削除に失敗しました。",
+      "save": "保存",
+      "cancel": "キャンセル",
+      "saveSuccess": "ユーザー設定を更新しました。",
+      "saveError": "ユーザーの更新に失敗しました。",
+      "loadError": "ユーザー一覧の取得に失敗しました。",
+      "unlimited": "無制限",
+      "nullableHint": "空欄で無制限になります。",
+      "selfFlagsHint": "自分の有効状態とスーパーユーザー権限は変更できません。",
+      "quotaSummary": "アップロード {{uploadMb}} MB · ストレージ {{storageGb}}",
+      "columns": {
+        "id": "ID",
+        "username": "ユーザー名",
+        "email": "メール",
+        "flags": "フラグ",
+        "quota": "クォータ",
+        "actions": "操作"
+      },
+      "flags": {
+        "superuser": "スーパーユーザー",
+        "staff": "スタッフ",
+        "inactive": "無効",
+        "overQuota": "超過"
+      },
+      "fields": {
+        "isActive": "有効",
+        "isStaff": "スタッフ",
+        "isSuperuser": "スーパーユーザー",
+        "maxUploadMb": "最大アップロードサイズ (MB)",
+        "storageLimitGb": "ストレージ上限 (GB)",
+        "processingLimitMinutes": "処理上限 (分)",
+        "aiAnswersLimit": "AI回答上限",
+        "usedStorageBytes": "使用ストレージ (bytes)",
+        "usedProcessingSeconds": "使用処理時間 (秒)",
+        "usedAiAnswers": "使用AI回答数",
+        "isOverQuota": "クォータ超過として扱う"
+      },
+      "errors": {
+        "invalidUploadMb": "最大アップロードサイズは正の整数で指定してください。",
+        "invalidStorageGb": "ストレージ上限は数値または空欄にしてください。",
+        "invalidProcessingMinutes": "処理上限は数値または空欄にしてください。",
+        "invalidAiLimit": "AI回答上限は数値または空欄にしてください。",
+        "invalidUsage": "利用量は0以上の整数で指定してください。"
+      }
+    },
+    "reindex": {
+      "title": "埋め込み",
+      "description": "全動画のシーン埋め込みを再索引するジョブをキューへ投入します。",
+      "button": "全埋め込みを再索引",
+      "confirmTitle": "全埋め込みを再索引しますか？",
+      "confirmBody": "バックグラウンドジョブを投入します。既存埋め込みは非同期で再構築されます。",
+      "confirm": "再索引を投入",
+      "success": "再索引ジョブを投入しました（{{jobId}}）。",
+      "error": "再索引ジョブの投入に失敗しました。"
+    }
+  }
+}

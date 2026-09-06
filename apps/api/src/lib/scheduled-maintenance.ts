@@ -6,6 +6,7 @@ import { failInvitationsWithoutLiveDelivery } from "../repositories/course-invit
 import type { Bindings } from "../types/bindings";
 import { processExternalTasks } from "./external-tasks";
 import { reconcileAbandonedUploads } from "./upload-reconcile";
+import { pruneMcpIdempotencyRecords } from "../repositories/mcp-idempotency-repository";
 
 export const DELIVERY_CRON = "*/5 * * * *";
 export const RETENTION_CRON = "17 3 * * *";
@@ -64,6 +65,7 @@ export async function runScheduledMaintenance(
   if (cron === RETENTION_CRON) {
     await settleAndReport("scheduled_delivery_retention", {
       retention: pruneDeliveryHistory(env),
+      mcpIdempotency: pruneMcpIdempotencyRecords(env),
     });
     return;
   }

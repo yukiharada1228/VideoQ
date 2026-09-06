@@ -20,7 +20,7 @@ After indexing completes, the native `build_plog` job runs:
    - (b) intro timeline → retype ordering subtypes (backfill → `prerequisite_of`)
    - cycles are **not** auto-broken; human adjudication rejects/reorients
 
-Rebuild: `POST /api/videos/{id}/plog/rebuild/`
+Rebuild: tRPC mutation `plog.rebuild` with `{ "videoId": <id> }`.
 
 ## Edge curation (product choice vs paper §3.1)
 
@@ -28,9 +28,11 @@ The paper requires a human accept/reject pass before study. VideoQ drops that ga
 **existing** ordering edges are used as-is. Operators edit or delete mistakes (and merge
 synonym / granularity twins) in the PLOG panel.
 
-`PATCH /api/videos/{id}/plog/edges/{edge_id}/` with `{ "source_id", "target_id", "edge_type", "quote" }`.
+Update an edge with the tRPC mutation `plog.updateEdge` and
+`{ "videoId", "edgeId", "sourceId", "targetId", "edgeType", "quote" }`.
 
-`POST /api/videos/{id}/plog/concepts/{survivor_id}/merge/` with `{ "absorb_id": <id> }`.
+Merge concepts with the tRPC mutation `plog.mergeConcepts` and
+`{ "videoId", "survivorId", "absorbId" }`.
 
 Study mode is blocked (`PLOG_NOT_READY`) until at least one video graph has ordering edges
 that form a DAG with a non-empty study path (cycles / empty path need edit or delete).

@@ -1,175 +1,36 @@
 import type { Context } from "hono";
+import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { streamSSE } from "hono/streaming";
+import type { ZodError } from "zod";
 import {
   requireAuth,
-  requireScope,
-  apiKeyMethod,
-  bearerApiKeyMethod,
   sessionMethod,
 } from "../../middleware/auth";
-import { ApiError, toErrorBody } from "../../shared/errors";
-import {
-  createFeatureRouter,
-  createRoute,
-  errorResponse,
-  jsonResponse,
-  z,
-} from "../../shared/openapi";
-import {
-  createListResponseSchema,
-  listResponse,
-  parseLimitOffset,
-} from "../../shared/pagination";
-import {
-  clientIp,
-  enforceThrottles,
-  throttledResponse,
-} from "../../lib/rate-limit";
+import { toErrorBody } from "../../shared/errors";
+import { clientIp, enforceThrottles, throttledResponse } from "../../lib/rate-limit";
 import type { AppEnv } from "../../types/bindings";
-import {
-  chatAnalyticsSchema,
-  chatCourseParamSchema,
-  chatHistoryQuerySchema,
-  chatLogItemSchema,
-  chatLogParamSchema,
-  chatMessageBodySchema,
-  feedbackBodySchema,
-  feedbackResponseSchema,
-  openAiCompletionBodySchema,
-  openAiCompletionResponseSchema,
-} from "./schemas";
+import { chatMessageBodySchema } from "./schemas";
+import { limitChatRequestBody } from "./body-limit";
 import * as chatService from "./service";
 import * as messageService from "./message-service";
 
-/**
- * チャット系。全エンドポイント OpenAPI + Zod。
- * body 検証は createRoute（defaultHook）に一本化。
- * `/api/chat` プレフィックスはアプリ側でマウントする。
- */
-export const chatRoutes = createFeatureRouter();
+/** Raw transports only: CSV download and SSE. JSON chat operations use tRPC. */
+export const chatRoutes = new Hono<AppEnv>();
 
-/** OpenAI 互換 completions。`/api/v1/chat` プレフィックスはアプリ側でマウントする。 */
-export const chatCompletionsRoutes = createFeatureRouter();
-
-const chatAuth = requireAuth(apiKeyMethod, sessionMethod);
-const courseNotFound = () =>
-  new ApiError(404, "VALIDATION_ERROR", "Course not found.");
-
-const historyRoute = createRoute({
-  method: "get",
-  path: "/courses/{courseId}/history",
-  tags: ["Chat"],
-  summary: "Chat history (or CSV download)",
-  middleware: [chatAuth] as const,
-  request: {
-    params: chatCourseParamSchema,
-    query: chatHistoryQuerySchema,
-  },
-  responses: {
-    200: {
-      description: "Chat history or RFC 4180 CSV export",
-      content: {
-        "application/json": {
-          schema: createListResponseSchema(chatLogItemSchema),
-        },
-        "text/csv": { schema: z.string() },
-      },
-    },
-    404: errorResponse("Not found"),
-  },
-});
-
-chatRoutes.openapi(historyRoute, async (c) => {
-  const userId = c.var.userId!;
-  const { courseId } = c.req.valid("param");
-  const query = c.req.valid("query");
-
-  if (query.download === "csv") {
-    const res = await chatService.exportHistoryCsv(c.env, courseId, userId);
-    if ("notFound" in res) throw courseNotFound();
-    return c.body(res.csv, 200, {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${res.filename}"`,
-    });
+const optionalShareAuth = createMiddleware<AppEnv>(async (c, next) => {
+  const result = await sessionMethod(c);
+  if (result.kind === "ok") {
+    c.set("userId", result.userId);
+    c.set("authVia", result.via);
+    return next();
   }
-
-  const { limit, offset } = parseLimitOffset(c);
-  const res = await chatService.historyForCourse(
-    c.env,
-    courseId,
-    userId,
-    limit,
-    offset,
-  );
-  if ("notFound" in res) throw courseNotFound();
-  return c.json(
-    listResponse(res.results, { total: res.count, limit, offset }),
-    200,
-  );
-});
-
-const resetGuards = [chatAuth, requireScope()] as const;
-
-const resetHistoryRoute = createRoute({
-  method: "delete",
-  path: "/courses/{courseId}/history",
-  tags: ["Chat"],
-  summary: "Reset chat history",
-  middleware: [...resetGuards] as const,
-  request: { params: chatCourseParamSchema },
-  responses: {
-    204: { description: "Deleted" },
-    404: errorResponse("Not found"),
-  },
-});
-
-chatRoutes.openapi(resetHistoryRoute, async (c) => {
-  const { courseId } = c.req.valid("param");
-  const res = await chatService.resetHistory(c.env, courseId, c.var.userId!);
-  if ("notFound" in res) throw courseNotFound();
-  return c.body(null, 204);
-});
-
-const analyticsRoute = createRoute({
-  method: "get",
-  path: "/courses/{courseId}/analytics",
-  tags: ["Chat"],
-  summary: "Chat analytics",
-  middleware: [chatAuth] as const,
-  request: { params: chatCourseParamSchema },
-  responses: {
-    200: jsonResponse(chatAnalyticsSchema),
-    404: errorResponse("Not found"),
-  },
-});
-
-chatRoutes.openapi(analyticsRoute, async (c) => {
-  const { courseId } = c.req.valid("param");
-  const res = await chatService.analyticsForCourse(
-    c.env,
-    courseId,
-    c.var.userId!,
-  );
-  if ("notFound" in res) throw courseNotFound();
-  return c.json(res, 200);
-});
-
-// 認証済み、または share_slug が解決できたリクエストを許可する。
-const feedbackAuth = createMiddleware<AppEnv>(async (c, next) => {
-  for (const m of [apiKeyMethod, sessionMethod]) {
-    const r = await m(c);
-    if (r.kind === "ok") {
-      c.set("userId", r.userId);
-      c.set("authVia", r.via);
-      if (r.accessLevel) c.set("apiKeyAccessLevel", r.accessLevel);
-      return next();
-    }
-    if (r.kind === "invalid") return c.json(toErrorBody("UNAUTHORIZED", r.message), 401);
+  if (result.kind === "invalid") {
+    return c.json(toErrorBody("UNAUTHORIZED", result.message), 401);
   }
   const shareSlug = c.req.query("share_slug") || c.req.query("share_token");
-  if (shareSlug && (await chatService.shareSlugExists(c.env, shareSlug))) {
+  if (shareSlug && await chatService.shareSlugExists(c.env, shareSlug)) {
     c.set("authVia", "share");
     return next();
   }
@@ -179,201 +40,88 @@ const feedbackAuth = createMiddleware<AppEnv>(async (c, next) => {
   );
 });
 
-const feedbackGuards = [feedbackAuth, requireScope("chat_write")] as const;
-
-const feedbackRoute = createRoute({
-  method: "patch",
-  path: "/logs/{logId}/feedback",
-  tags: ["Chat"],
-  summary: "Set chat log feedback",
-  middleware: [...feedbackGuards] as const,
-  request: {
-    params: chatLogParamSchema,
-    body: {
-      content: { "application/json": { schema: feedbackBodySchema } },
-      required: true,
-    },
-  },
-  responses: {
-    200: jsonResponse(feedbackResponseSchema),
-    400: errorResponse("Bad request"),
-    403: errorResponse("Forbidden"),
-    404: errorResponse("Not found"),
-  },
-});
-
-chatRoutes.openapi(feedbackRoute, async (c) => {
-  const { logId } = c.req.valid("param");
-  const body = c.req.valid("json");
-  let feedback = body.feedback ?? null;
-  if (feedback === "") feedback = null;
-  if (feedback !== null && feedback !== "good" && feedback !== "bad") {
-    throw new ApiError(
-      400,
-      "VALIDATION_ERROR",
-      "feedback must be 'good', 'bad', or null (unspecified)",
-    );
-  }
-
-  const res = await chatService.submitFeedback(
-    c.env,
-    logId,
-    feedback as "good" | "bad" | null,
-    {
-      userId: c.var.userId,
-      shareSlug: c.req.query("share_slug") || c.req.query("share_token"),
-    },
-  );
-  if ("notFound" in res) {
-    throw new ApiError(404, "VALIDATION_ERROR", res.notFound ?? "Not found");
-  }
-  if ("forbidden" in res) {
-    throw new ApiError(403, "VALIDATION_ERROR", res.forbidden ?? "Forbidden");
-  }
-  return c.json(
-    { chat_log_id: res.chat_log_id, feedback: res.feedback },
-    200,
-  );
-});
-
-// --- 書き込み: チャット送信（ChatView / StreamChatView）---
-//
-// チャット送信は次の順序で処理する:
-//   前提条件 → course 解決 → owner 解決 → AI 回答上限 →
-//   mode=qa: RAG / mode=study: PlogGuidedChatGateway → ChatLog → 使用量記録。
-// throttle: AuthenticatedChatThrottle(300/h) + ShareTokenIPThrottle(100/h)。
-
-/** AuthenticatedChatThrottle + ShareTokenIPThrottle（認証後・view 前）。 */
 const chatThrottle = createMiddleware<AppEnv>(async (c, next) => {
   const shareSlug = c.req.query("share_slug") || c.req.query("share_token");
   const denied = await enforceThrottles(c.env, [
-    {
-      scope: "chat_authenticated",
-      ident: c.var.userId != null ? String(c.var.userId) : null,
-    },
-    {
-      scope: "chat_share_token_ip",
-      ident: shareSlug ? clientIp(c) : null,
-    },
+    { scope: "chat_authenticated", ident: c.var.userId },
+    { scope: "chat_share_token_ip", ident: shareSlug ? clientIp(c) : null },
   ]);
   if (denied) return throttledResponse(c, denied);
   await next();
 });
 
-const shareSlugOf = (c: Context<AppEnv>) =>
-  c.req.query("share_slug") ?? c.req.query("share_token") ?? null;
-
-const sendGuards = [
-  feedbackAuth,
-  chatThrottle,
-  requireScope("chat_write"),
-] as const;
-
-const sendMessageRoute = createRoute({
-  method: "post",
-  path: "/messages",
-  tags: ["Chat"],
-  summary: "Send chat message (RAG / study)",
-  middleware: [...sendGuards] as const,
-  request: {
-    body: {
-      content: { "application/json": { schema: chatMessageBodySchema } },
-      required: true,
-    },
-  },
-  responses: {
-    200: jsonResponse(z.record(z.string(), z.unknown())),
-    400: errorResponse("Bad request"),
-  },
-});
-chatRoutes.openapi(sendMessageRoute, async (c) => {
-  const res = await messageService.sendChatMessage(c.env, {
-    userId: c.var.userId ?? null,
-    body: c.req.valid("json"),
-    shareSlug: shareSlugOf(c),
-    locale: messageService.requestLocaleFromHeader(c.req.header("Accept-Language")),
-  });
-  return c.json(res.body, res.status as ContentfulStatusCode);
-});
-
-const streamMessageRoute = createRoute({
-  method: "post",
-  path: "/messages/stream",
-  tags: ["Chat"],
-  summary: "Stream chat message (SSE)",
-  middleware: [...sendGuards] as const,
-  request: {
-    body: {
-      content: { "application/json": { schema: chatMessageBodySchema } },
-      required: true,
-    },
-  },
-  responses: {
-    200: {
-      description: "Server-sent chat events",
-      content: { "text/event-stream": { schema: z.string() } },
-    },
-    400: errorResponse("Bad request"),
-  },
-});
-chatRoutes.openapi(streamMessageRoute, async (c) => {
-  const res = await messageService.streamChatMessage(c.env, {
-    userId: c.var.userId ?? null,
-    body: c.req.valid("json"),
-    shareSlug: shareSlugOf(c),
-    locale: messageService.requestLocaleFromHeader(c.req.header("Accept-Language")),
-    clientSignal: c.req.raw.signal,
-  });
-  if (res.kind === "json") {
-    return c.json(res.body, res.status as ContentfulStatusCode);
+const validationResponse = (c: Context<AppEnv>, message: string, error?: ZodError) => {
+  const details: Record<string, string[]> = {};
+  for (const issue of error?.issues ?? []) {
+    const field = String(issue.path[0] ?? "body");
+    (details[field] ??= []).push(issue.message);
   }
-  c.header("Cache-Control", "no-cache");
-  c.header("Content-Encoding", "Identity");
-  c.header("X-Accel-Buffering", "no");
-  return streamSSE(
-    c,
-    async (stream) => {
-      try {
-        await res.write((data) =>
-          stream.writeSSE({ data: JSON.stringify(data) }),
-        );
-      } catch (error) {
-        console.error({ event: "chat_stream_failed", error });
-      }
-    },
-  );
-});
-
-const completionsGuards = [
-  requireAuth(bearerApiKeyMethod, apiKeyMethod, sessionMethod),
-  chatThrottle,
-  requireScope("chat_write"),
-] as const;
-
-const completionsRoute = createRoute({
-  method: "post",
-  path: "/completions",
-  tags: ["Chat"],
-  summary: "OpenAI-compatible chat completions",
-  middleware: [...completionsGuards] as const,
-  request: {
-    body: {
-      content: { "application/json": { schema: openAiCompletionBodySchema } },
-      required: true,
-    },
-  },
-  responses: {
-    200: jsonResponse(openAiCompletionResponseSchema),
-    400: errorResponse("Bad request"),
-  },
-});
-chatCompletionsRoutes.openapi(completionsRoute, async (c) => {
-  const res = await messageService.openAiChatCompletions(c.env, {
-    userId: c.var.userId ?? null,
-    body: c.req.valid("json"),
-    localeFallback: messageService.requestLocaleFromHeader(
-      c.req.header("Accept-Language"),
+  return c.json(
+    toErrorBody(
+      "VALIDATION_ERROR",
+      message,
+      Object.keys(details).length > 0 ? details : undefined,
     ),
-  });
-  return c.json(res.body, res.status as ContentfulStatusCode);
-});
+    400,
+  );
+};
+
+chatRoutes.get(
+  "/courses/:courseId/history.csv",
+  requireAuth(sessionMethod),
+  async (c) => {
+    const courseId = Number(c.req.param("courseId"));
+    if (!Number.isInteger(courseId) || courseId <= 0) {
+      return validationResponse(c, "courseId must be a positive integer");
+    }
+    const result = await chatService.exportHistoryCsv(c.env, courseId, c.var.userId!);
+    if ("notFound" in result) {
+      return c.json(toErrorBody("NOT_FOUND", "Course not found."), 404);
+    }
+    return c.body(result.body, 200, {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${result.filename}"`,
+      "Cache-Control": "private, no-store",
+    });
+  },
+);
+
+chatRoutes.post(
+  "/messages/stream",
+  limitChatRequestBody,
+  optionalShareAuth,
+  chatThrottle,
+  async (c) => {
+    const parsed = chatMessageBodySchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return validationResponse(c, parsed.error.issues[0]?.message ?? "Invalid input", parsed.error);
+    }
+    const shareSlug = c.req.query("share_slug") ?? c.req.query("share_token") ?? null;
+    const result = await messageService.streamChatMessage(c.env, {
+      userId: c.var.userId ?? null,
+      body: parsed.data,
+      shareSlug,
+      locale: messageService.requestLocaleFromHeader(c.req.header("Accept-Language")),
+      clientSignal: c.req.raw.signal,
+    });
+    if (result.kind === "json") {
+      return c.json(result.body, result.status as ContentfulStatusCode);
+    }
+    c.header("Cache-Control", "no-cache");
+    c.header("Content-Encoding", "Identity");
+    c.header("X-Accel-Buffering", "no");
+    return streamSSE(c, async (stream) => {
+      try {
+        await result.write((data) => stream.writeSSE({ data: JSON.stringify(data) }));
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            level: "error",
+            event: "chat_stream_failed",
+            message: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      }
+    });
+  },
+);

@@ -18,13 +18,22 @@ import {
 } from "../../lib/plog-study";
 import { runRag, streamRag, type RagCitation } from "../../lib/rag";
 import type { Bindings } from "../../types/bindings";
-import type { ChatMessageBody, OpenAiCompletionBody } from "./schemas";
+import type { ChatMessageBody } from "./schemas";
+import type { ChatMessage } from "@videoq/trpc";
 
 export type JsonResult = {
   kind: "json";
   status: number;
   body: unknown;
 };
+
+type ChatSendResult =
+  | { kind: "json"; status: 200; body: ChatMessage }
+  | {
+      kind: "json";
+      status: ChatFailure["status"];
+      body: { error: { code: string; message: string } };
+    };
 
 /** Normalized chat request after Zod validation. */
 export type ChatRequestInput = {
@@ -231,28 +240,16 @@ async function releaseReservedUsage(env: Bindings, setup: ChatSetup): Promise<vo
   try {
     await releaseAiAnswerReservation(env, setup.quotaReservation);
   } catch (error) {
-    console.error({
-      event: "ai_answer_quota_release_failed",
-      ownerUserId: setup.ownerUserId,
-      error,
-    });
+    console.error(
+      JSON.stringify({
+        level: "error",
+        event: "ai_answer_quota_release_failed",
+        ownerUserId: setup.ownerUserId,
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
   }
 }
-
-/** ドメイン例外 → OpenAI error.type。 */
-export const openAiErrorType = (f: ChatFailure): string => {
-  switch (f.streamCode) {
-    case "PERMISSION_DENIED":
-      return "permission_denied";
-    case "OVER_QUOTA":
-    case "AI_ANSWERS_LIMIT_EXCEEDED":
-      return "insufficient_quota";
-    case "LLM_PROVIDER_ERROR":
-      return "api_error";
-    default:
-      return "invalid_request_error";
-  }
-};
 
 export function requestLocaleFromHeader(
   acceptLanguage: string | undefined,
@@ -262,7 +259,7 @@ export function requestLocaleFromHeader(
   return header.split(",")[0].split(";")[0].trim() || null;
 }
 
-/** POST /api/chat/messages */
+/** Non-streaming `chat.send` procedure. */
 export async function sendChatMessage(
   env: Bindings,
   opts: {
@@ -271,7 +268,7 @@ export async function sendChatMessage(
     shareSlug: string | null;
     locale: string | null;
   },
-): Promise<JsonResult> {
+): Promise<ChatSendResult> {
   const req = toChatRequestInput(opts.body);
 
   const prepared = await setupChat(env, {
@@ -333,7 +330,7 @@ export async function sendChatMessage(
       retrievedContexts: result.retrievedContexts,
     });
 
-    const body: Record<string, unknown> = {
+    const body: ChatMessage = {
       role: "assistant",
       content: result.content,
     };
@@ -342,7 +339,7 @@ export async function sendChatMessage(
     }
     if (chatLogId !== null) {
       body.chat_log_id = chatLogId;
-      body.feedback = feedback;
+      body.feedback = feedback === "good" || feedback === "bad" ? feedback : null;
     }
 
     return { kind: "json", status: 200, body };
@@ -492,92 +489,4 @@ export async function streamChatMessage(
       await send(done);
     },
   };
-}
-
-/** POST /api/v1/chat/completions */
-export async function openAiChatCompletions(
-  env: Bindings,
-  opts: {
-    userId: string | null;
-    body: OpenAiCompletionBody;
-    localeFallback: string | null;
-  },
-): Promise<JsonResult> {
-  const { model, messages, course_id: courseId, language } = opts.body;
-
-  const prepared = await setupChat(env, {
-    userId: opts.userId,
-    req: {
-      messages,
-      courseId: courseId ?? null,
-      mode: "qa",
-      studySessionId: null,
-    },
-    shareSlug: null,
-    locale: language ?? opts.localeFallback,
-  });
-  if (!prepared.ok) {
-    const f = prepared.failure;
-    return {
-      kind: "json",
-      status: f.status,
-      body: { error: { message: f.message, type: openAiErrorType(f) } },
-    };
-  }
-  const setup = prepared.setup;
-
-  let result: Awaited<ReturnType<typeof runRag>>;
-  try {
-    result = await runRag(env, {
-      messages,
-      ownerUserId: setup.ownerUserId,
-      videoIds: setup.course ? setup.course.memberVideoIds : null,
-      locale: setup.locale,
-      courseContext: setup.course?.description ?? null,
-    });
-  } catch (e) {
-    await releaseReservedUsage(env, setup);
-    const f = toFailure(e);
-    return {
-      kind: "json",
-      status: f.status,
-      body: { error: { message: f.message, type: openAiErrorType(f) } },
-    };
-  }
-
-  try {
-    const { chatLogId } = await persistTurn(env, setup, {
-      question: result.queryText,
-      answer: result.content,
-      citations: result.citations,
-      retrievedContexts: result.retrievedContexts,
-    });
-
-    const message: Record<string, unknown> = {
-      role: "assistant",
-      content: result.content,
-    };
-    if (result.citations?.length) message.citations = withCitationIds(result.citations);
-    if (chatLogId !== null) message.chat_log_id = chatLogId;
-
-    return {
-      kind: "json",
-      status: 200,
-      body: {
-        id: `chatcmpl-${crypto.randomUUID().replaceAll("-", "")}`,
-        object: "chat.completion",
-        created: Math.floor(Date.now() / 1000),
-        model,
-        choices: [{ index: 0, message, finish_reason: "stop" }],
-        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
-      },
-    };
-  } catch (e) {
-    const f = toFailure(e);
-    return {
-      kind: "json",
-      status: f.status,
-      body: { error: { message: f.message, type: openAiErrorType(f) } },
-    };
-  }
 }

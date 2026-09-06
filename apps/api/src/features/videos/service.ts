@@ -34,11 +34,32 @@ import {
   INVALID_YOUTUBE_URL_MESSAGE,
 } from "../../lib/youtube";
 import type { Bindings } from "../../types/bindings";
-import type { UploadRequest, YoutubeCreateRequest } from "./schemas";
 import { processExternalTaskById } from "../../lib/external-tasks";
+import type { CreationIdempotency } from "../../repositories/mcp-idempotency-repository";
+
+type UploadRequest = {
+  filename: string;
+  content_type: string;
+  file_size: number;
+  title: string;
+  description: string;
+};
+
+type YoutubeCreateRequest = {
+  youtube_url: string;
+  title: string;
+  description: string;
+};
 
 const reportBestEffortFailure = (operation: string, error: unknown) => {
-  console.error({ event: "best_effort_failed", operation, error });
+  console.error(
+    JSON.stringify({
+      level: "error",
+      event: "best_effort_failed",
+      operation,
+      message: error instanceof Error ? error.message : String(error),
+    }),
+  );
 };
 
 async function dispatchCleanupTask(
@@ -51,6 +72,16 @@ async function dispatchCleanupTask(
 export type MultipartVideoResult =
   | { ok: true; video: Awaited<ReturnType<typeof getVideoDetail>> }
   | { ok: false; status: number; body: unknown };
+
+export function multipartUnavailableBody() {
+  return {
+    error: {
+      code: "VALIDATION_ERROR",
+      message:
+        "Direct multipart upload is unavailable in object-storage mode. Call the videos.requestUpload tRPC procedure, PUT the file to upload_url, then call videos.confirmUpload.",
+    },
+  } as const;
+}
 
 export function parseTagIds(tagsParam: string | undefined): number[] | null {
   if (!tagsParam?.trim()) return null;
@@ -103,6 +134,7 @@ export async function requestPresignedUpload(
   env: Bindings,
   userId: string,
   body: UploadRequest,
+  idempotency?: CreationIdempotency,
 ) {
   if (!isS3Storage(env)) {
     return {
@@ -126,7 +158,15 @@ export async function requestPresignedUpload(
     return { fileTooLarge: true, maxMb } as const;
   }
 
-  const fileKey = buildPendingUploadFileKey(userId, body.file_size, ext);
+  const fileKey = idempotency
+    ? buildPendingUploadFileKey(
+        userId,
+        body.file_size,
+        ext,
+        Number.parseInt(idempotency.requestHash.slice(0, 12), 16),
+        idempotency.requestHash.slice(12, 24),
+      )
+    : buildPendingUploadFileKey(userId, body.file_size, ext);
   const pending = await reserveAndCreatePendingVideo(
     env,
     userId,
@@ -134,7 +174,11 @@ export async function requestPresignedUpload(
     fileKey,
     body.title,
     body.description,
+    idempotency,
   );
+  if ("idempotencyConflict" in pending) {
+    return { idempotencyConflict: true } as const;
+  }
   if ("overQuota" in pending) {
     return {
       badRequest: "Storage limit exceeded: account is over quota.",
@@ -150,17 +194,35 @@ export async function requestPresignedUpload(
 
   const videoId = pending.videoId;
   try {
+    const video = await getVideoDetail(env, videoId, userId);
+    if (!video) {
+      throw new Error("Reserved video could not be loaded.");
+    }
+    // Once confirmation has advanced the state, never mint another PUT URL for
+    // the same object. A late retry must not be able to overwrite media that is
+    // already being processed (or has completed processing).
+    if (pending.reused && video.status !== "uploading") {
+      return {
+        video,
+        upload_url: null,
+        reused: true,
+        already_confirmed: true,
+      } as const;
+    }
     const uploadUrl = await presignR2Put(
       env,
-      fileKey,
+      pending.fileKey,
       body.content_type,
       body.file_size,
     );
     return {
-      video: await getVideoDetail(env, videoId, userId),
+      video,
       upload_url: uploadUrl,
+      reused: pending.reused,
+      already_confirmed: false,
     } as const;
   } catch (error) {
+    if (pending.reused) throw error;
     try {
       const deleted = await deleteVideoCascade(env, videoId, userId, {
         expectedStatus: "uploading",
@@ -187,6 +249,7 @@ export async function createUserYoutubeVideo(
   env: Bindings,
   userId: string,
   body: YoutubeCreateRequest,
+  idempotency?: CreationIdempotency,
 ) {
   if (!isValidUrlFormat(body.youtube_url)) {
     return { fieldError: { youtube_url: ["Enter a valid URL."] } } as const;
@@ -198,14 +261,25 @@ export async function createUserYoutubeVideo(
     } as const;
   }
 
-  const created = await createYoutubeVideo(env, userId, {
-    sourceUrl: body.youtube_url,
-    youtubeVideoId,
-    title: body.title,
-    description: body.description,
-  });
-  await processExternalTaskById(env, created.taskId);
-  return { video: await getVideoDetail(env, created.videoId, userId) } as const;
+  const created = await createYoutubeVideo(
+    env,
+    userId,
+    {
+      sourceUrl: body.youtube_url,
+      youtubeVideoId,
+      title: body.title,
+      description: body.description,
+    },
+    idempotency,
+  );
+  if ("idempotencyConflict" in created) return created;
+  if (created.taskId !== null) {
+    await processExternalTaskById(env, created.taskId);
+  }
+  return {
+    video: await getVideoDetail(env, created.videoId, userId),
+    reused: created.reused,
+  } as const;
 }
 
 export async function confirmVideoUpload(
@@ -216,6 +290,19 @@ export async function confirmVideoUpload(
   const cur = await getVideoStatus(env, videoId, userId);
   if (!cur.found) return { notFound: true } as const;
   if (cur.status !== "uploading") {
+    const upload = await getVideoFileKey(env, videoId, userId);
+    if (
+      upload.found &&
+      upload.fileKey &&
+      ["pending", "processing", "indexing", "completed", "error"].includes(
+        cur.status,
+      )
+    ) {
+      return {
+        video: await getVideoDetail(env, videoId, userId),
+        alreadyConfirmed: true,
+      } as const;
+    }
     return {
       badState: true as const,
       message: `Video is in '${cur.status}' state, expected 'uploading'`,
@@ -250,13 +337,29 @@ export async function confirmVideoUpload(
     "pending",
   );
   if (!transitioned) {
+    // A concurrent confirmation may have won after the initial status read.
+    const latest = await getVideoStatus(env, videoId, userId);
+    if (
+      latest.found &&
+      ["pending", "processing", "indexing", "completed", "error"].includes(
+        latest.status,
+      )
+    ) {
+      return {
+        video: await getVideoDetail(env, videoId, userId),
+        alreadyConfirmed: true,
+      } as const;
+    }
     return {
       badState: true as const,
       message: "Video upload was already confirmed.",
     };
   }
   await processExternalTaskById(env, transitioned.taskId);
-  return { video: await getVideoDetail(env, videoId, userId) } as const;
+  return {
+    video: await getVideoDetail(env, videoId, userId),
+    alreadyConfirmed: false,
+  } as const;
 }
 
 export async function patchUserVideo(
@@ -334,13 +437,7 @@ export async function createVideoFromMultipart(
     return {
       ok: false,
       status: 400,
-      body: {
-        error: {
-          code: "VALIDATION_ERROR",
-          message:
-            "Direct multipart upload is no longer supported. Use POST /api/videos/uploads/ then PUT the file to upload_url and PATCH the video with status \"uploaded\".",
-        },
-      },
+      body: multipartUnavailableBody(),
     };
   }
 
@@ -453,6 +550,9 @@ export async function createVideoFromMultipart(
     title,
     description,
   );
+  if ("idempotencyConflict" in pending) {
+    throw new Error("Unexpected idempotency conflict without an idempotency key.");
+  }
   if ("overQuota" in pending) {
     return {
       ok: false,

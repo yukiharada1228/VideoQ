@@ -49,9 +49,6 @@ stateDiagram-v2
 
     VideoList --> Settings: Settings Menu
     Settings --> VideoList: Back
-    Home --> DeveloperDocs: Open Developer Docs
-    DeveloperDocs --> DeveloperDocsSection: Select API Section
-    DeveloperDocsSection --> DeveloperDocs: Back
     
     note right of Home
         Home Page
@@ -117,11 +114,7 @@ stateDiagram-v2
 ### 設定
 - **Settings** (`/settings` または `/:locale/settings`): 設定ページ（アカウント情報、無効化、APIキー管理）
 
-### 開発者向け
-- **DeveloperDocs** (`/docs` または `/:locale/docs`): 開発者ドキュメントのトップ
-- **DeveloperDocsSection** (`/docs/:section` または `/:locale/docs/:section`): セクション別APIドキュメント
-
-**注記**: このプロジェクトはReact Router + react-i18next（Next.js / next-intl ではない）でロケール対応ルーティングを実装しています（`frontend/src/App.tsx`）。
+**注記**: このプロジェクトはReact Router + react-i18next（Next.js / next-intl ではない）でロケール対応ルーティングを実装しています（`apps/web/src/App.tsx`）。
 - デフォルトロケール（`en`）はプレフィックスなし: `/videos`
 - その他のロケールは `/:locale` プレフィックスを使用: `/ja/videos`
 - `/:locale` が欠落しており、ユーザーの優先ロケールがデフォルトでない場合、アプリは自動的に `/:locale/...` にリダイレクトします
@@ -133,13 +126,13 @@ stateDiagram-v2
 - **認証済みユーザー**: Home → VideoList（直接遷移）
 
 ### 機能フラグ
-- `ENABLE_SIGNUP=false` の場合、`/api/auth/signup/` が無効化され、サインアップフローは利用不可になります。
+- `ENABLE_SIGNUP=false` の場合、Better Authのメールサインアップが拒否され、サインアップフローは利用不可になります。
 
 ### 共有リンクによる遷移
 - **共有トークンURL**: SharePageへの直接アクセス（認証不要）
 
 ### APIキーによる遷移
-- **APIクライアント**: 画面遷移なし — APIキーはサーバー間連携用であり、ブラウザベースのアクセスではありません
+- **MCPクライアント**: 画面遷移なし — APIキーはMCP transport専用であり、ブラウザ向けtRPCには使用しません
 
 ### エラーハンドリング
 - 認証エラー: API レベルでは 401/403 を返却し、フロントエンドは必要に応じてログイン導線やメッセージを表示

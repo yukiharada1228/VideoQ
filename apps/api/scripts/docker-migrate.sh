@@ -1,13 +1,18 @@
 #!/bin/sh
 # Compose one-shot: ensure deps, then stamp + migrate.
 set -eu
-cd "$(dirname "$0")/.."
+api_dir=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+workspace_root=$(CDPATH= cd -- "$api_dir/../.." && pwd)
+workspace_modules="$workspace_root/node_modules"
+workspace_lock="$workspace_root/package-lock.json"
+install_stamp="$workspace_modules/.videoq-package-lock"
 
-if [ ! -x node_modules/.bin/drizzle-kit ] || [ ! -f node_modules/.package-lock.json ] \
-  || ! cmp -s package-lock.json node_modules/.package-lock.json 2>/dev/null; then
-  echo "Installing npm dependencies for migrate (npm ci)..."
-  npm ci
-  cp package-lock.json node_modules/.package-lock.json
+if [ ! -x "$workspace_modules/.bin/drizzle-kit" ] || [ ! -f "$install_stamp" ] \
+  || ! cmp -s "$workspace_lock" "$install_stamp" 2>/dev/null; then
+  echo "Installing API workspace dependencies for migrate (npm ci)..."
+  (cd "$workspace_root" && npm ci --workspace @videoq/api)
+  cp "$workspace_lock" "$install_stamp"
 fi
 
+cd "$api_dir"
 exec npm run db:migrate

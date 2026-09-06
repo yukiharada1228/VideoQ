@@ -14,7 +14,7 @@
 ### アーキテクチャ
 
 - [システム構成図](architecture/system-configuration-diagram.md)
-- [Hono ネイティブ設計](architecture/hono-native-redesign.md)
+- [tRPC API 設計](architecture/trpc-api.md)
 - [フローチャート](architecture/flowchart.md)
 - [BPMN](architecture/bpmn.md)
 - [プロンプトエンジニアリング](architecture/prompt-engineering.md)
@@ -48,11 +48,11 @@
 | レイヤー | 技術 |
 |---|---|
 | フロントエンド | React 19, TypeScript, Vite, React Router, TanStack Query |
-| Web API | Hono, OpenAPIHono, Zod, Drizzle ORM, Cloudflare Workers |
+| Web API | Hono, tRPC, Zod, Drizzle ORM, Cloudflare Workers |
 | 非同期処理 | Python, AWS Lambda, Amazon SQS |
 | データ | Neon PostgreSQL, pgvector, Hyperdrive |
 | ストレージ | Cloudflare R2（ローカル MinIO） |
-| Edge state | Durable Objects, KV |
+| Edge state | Durable Objects（rate limit、study session） |
 | AI | OpenAI, Ollama, whisper.cpp |
 
 API の実行仕様は [`apps/api/README.md`](../apps/api/README.md)、worker は
