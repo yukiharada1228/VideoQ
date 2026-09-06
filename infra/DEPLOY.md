@@ -195,12 +195,8 @@ GitHub Actionsは固定AWS access keyではなく、plan / deployを分離した
 `AWS_GITHUB_ACTIONS_DEPLOY_ROLE_ARN`）は[`iam/README.md`](iam/README.md)を参照してください。
 
 既存Lambdaが一度でも動作済みなら、CloudWatch Logs groupはAWSが先に作成しています。
-最初のmonitoring apply前に一度だけstateへimportします。
-
-```bash
-cd infra
-terraform import aws_cloudwatch_log_group.worker /aws/lambda/videoq-worker-prod
-```
+`monitoring.tf`の宣言的な`import`ブロックが最初のapplyで既存groupをstateへ取り込み、
+以後は通常のTerraformリソースとして管理します。
 
 `operations_alert_email`を設定すると、Lambda error / throttle / 長時間実行、SQS滞留、
 DLQ到達をSNS emailで通知します。apply後にAWSから届くsubscription確認メールを承認して
