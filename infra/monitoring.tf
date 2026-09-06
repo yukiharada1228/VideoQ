@@ -10,8 +10,13 @@ resource "aws_sns_topic_subscription" "operations_email" {
   endpoint  = var.operations_alert_email
 }
 
-# Lambda creates this group implicitly on first invocation. Existing production
-# installations must import it once before the first apply; see DEPLOY.md.
+# Lambda creates this group implicitly on first invocation. Declarative import
+# adopts an existing group on the first apply and is a no-op once it is managed.
+import {
+  to = aws_cloudwatch_log_group.worker
+  id = "/aws/lambda/${local.names.worker}"
+}
+
 resource "aws_cloudwatch_log_group" "worker" {
   name              = "/aws/lambda/${local.names.worker}"
   retention_in_days = var.lambda_log_retention_days
