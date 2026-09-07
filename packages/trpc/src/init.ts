@@ -10,15 +10,21 @@ type ApplicationErrorCause = {
 
 export const t = initTRPC.context<TrpcContext>().create({
   errorFormatter({ shape, error }) {
-    const cause = error.cause as ApplicationErrorCause | undefined;
+    const internalError = error.code === "INTERNAL_SERVER_ERROR";
+    // Output validation is a server failure, never a client field error.
+    const outputValidationError = internalError && error.cause instanceof ZodError;
+    const cause = outputValidationError ? undefined : error.cause as ApplicationErrorCause | undefined;
+    const inputValidationError = error.code === "BAD_REQUEST" && error.cause instanceof ZodError
+      ? error.cause
+      : undefined;
     const validationDetails: Record<string, string[]> = {};
-    if (error.cause instanceof ZodError) {
-      for (const issue of error.cause.issues) {
+    if (inputValidationError) {
+      for (const issue of inputValidationError.issues) {
         const field = String(issue.path[0] ?? "input");
         (validationDetails[field] ??= []).push(issue.message);
       }
     }
-    const applicationCode = error.cause instanceof ZodError
+    const applicationCode = inputValidationError
       ? "VALIDATION_ERROR"
       : typeof cause?.appCode === "string"
         ? cause.appCode
@@ -31,10 +37,10 @@ export const t = initTRPC.context<TrpcContext>().create({
 
     return {
       ...shape,
-      message: error.cause instanceof ZodError
-        ? (error.cause.issues[0]?.message ?? "Invalid input")
-        : error.code === "INTERNAL_SERVER_ERROR"
-          ? "An internal server error occurred."
+      message: internalError
+        ? "An internal server error occurred."
+        : inputValidationError
+          ? (inputValidationError.issues[0]?.message ?? "Invalid input")
           : shape.message,
       data: {
         ...shape.data,

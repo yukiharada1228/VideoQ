@@ -23,10 +23,12 @@ flowchart LR
 packages/trpc/
 ├── src/init.ts          tRPC 初期化、認証・権限 middleware、error formatter
 ├── src/inputs/          Zod input（validation と handler 入力型の定義元）
+├── src/outputs.ts       Zod output（validation と handler 出力型の定義元）
+├── src/model-schemas.ts 共有 DTO の出力検証スキーマ
 ├── src/routers/         domain router と procedure の接続
 ├── src/router.ts        AppRouter の合成
-├── src/contracts.ts     Zod から導出する入力 map と handler の出力契約
-├── src/models.ts        API / SPA 共有 DTO
+├── src/contracts.ts     Zod から導出する入出力 map と handler 契約
+├── src/models.ts        出力スキーマから導出する API / SPA 共有 DTO
 ├── src/context.ts       framework 非依存の request context
 └── src/schema.ts        runtime 共有定数
 
@@ -46,6 +48,12 @@ apps/web/src/lib/
 入力スキーマは `src/inputs/` に一度だけ定義します。procedure の `.input()` と
 `RpcInputMap` が同じスキーマを参照し、handler には `z.output` で default / transform
 適用後の型を渡します。SPA の呼び出し側の型は引き続き `AppRouter` から推論します。
+
+出力スキーマは `src/outputs.ts` に全 procedure 分を定義します。`.output()` と
+`RpcOutputMap` が同じスキーマを使い、共有 DTO も `src/model-schemas.ts` と
+`src/schema.ts` から導出します。出力検証では必須項目・型を確認し、未定義フィールドを
+除去します。タグの書き込みは `tagColorSchema` でパレット名に制限しますが、出力では
+旧 hex 色の保存データも受け入れます。
 
 ## React とキャッシュ
 
@@ -80,13 +88,17 @@ HTTP protocol または payload transport 自体に意味があるものだけ r
 - chat history CSV export
 
 新しい通常 JSON 操作は `packages/trpc/src/inputs` に入力スキーマを定義し、
-`packages/trpc/src/routers` と `apps/api/src/trpc/handlers` に procedure を追加します。
+`packages/trpc/src/outputs.ts` に出力スキーマを定義します。
+`packages/trpc/src/routers` で `.input()` / `.output()` を接続し、
+`apps/api/src/trpc/handlers` に実装を追加します。
 
 ## Error contract
 
 tRPC の標準 error code / HTTP status に加え、既存 UI が判断に使う
 `applicationCode` と field validation の `details` を error data に保持します。
 内部エラーの message は公開時に固定文へ置き換えます。
+出力検証の失敗も `INTERNAL_SERVER_ERROR` とし、入力の `VALIDATION_ERROR` と区別します。
+出力検証エラーには `applicationCode` や検証の `details` を付けません。
 
 SPA は tRPC 標準の `TRPCClientError` をそのまま受け取り、画面で application code や
 details が必要な場合は `getApiError()` を使います。認証切れは link で procedure ごとに

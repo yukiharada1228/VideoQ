@@ -74,6 +74,7 @@ jobs:
         run: |
           npm ci
           npm run cf-typegen:check --workspace @videoq/api
+          npm run typecheck --workspace @videoq/trpc
           npm run typecheck --workspace @videoq/api
           npm run db:check --workspace @videoq/api
           npm run db:verify --workspace @videoq/api

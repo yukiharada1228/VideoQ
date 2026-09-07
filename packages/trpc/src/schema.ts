@@ -48,7 +48,8 @@ export const TAG_COLORS = [
   "purple",
 ] as const;
 
-export type TagColor = (typeof TAG_COLORS)[number];
+export const tagColorSchema = z.enum(TAG_COLORS);
+export type TagColor = z.infer<typeof tagColorSchema>;
 
 export const VIDEO_STATUSES = [
   "uploading",
