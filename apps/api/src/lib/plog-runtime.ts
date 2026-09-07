@@ -315,7 +315,8 @@ export function studyPathConceptIds(
   edges: readonly PlogEdge[],
 ): number[] {
   const ordering = edges.filter((e) => ORDERING.has(e.edge_type));
-  if (ordering.length === 0) return [];
+  // A single concept has no prerequisite relation but is a usable path by itself.
+  if (ordering.length === 0) return concepts.length === 1 ? [concepts[0]!.id] : [];
   const incident = new Set<number>();
   for (const e of ordering) {
     incident.add(e.source_id);
@@ -416,7 +417,6 @@ export function retrieveContext(
 
 export function orderingPathReady(graph: PlogGraphSnapshot): boolean {
   const ordering = orderingEdges(graph.edges);
-  if (ordering.length === 0) return false;
   const pairs = ordering.map((e) => [String(e.source_id), String(e.target_id)] as const);
   if (!isDag(pairs)) return false;
   return studyPathConceptIds(graph.concepts, ordering).length > 0;

@@ -197,6 +197,68 @@ describe("EphemeralLearnerStateStore", () => {
 });
 
 describe("runStudy smoke", () => {
+  it.each([
+    { routing: "semantic match", embedding: [1, 0] },
+    { routing: "first-unreached fallback", embedding: [0, 0] },
+  ])("single-concept study opens and stays completed after mastery ($routing)", async ({ embedding }) => {
+    const originalRowsFor = rowsFor;
+    rowsFor = (sql, args) => {
+      if (sql.includes("FROM plog_edges")) return [];
+      const rows = originalRowsFor(sql, args);
+      return sql.includes("FROM plog_concepts") ? rows.slice(0, 1) : rows;
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/embeddings")) {
+        return Response.json({ data: [{ embedding }] });
+      }
+      if (url.endsWith("/chat/completions")) {
+        const body = JSON.parse(String(init?.body ?? "{}"));
+        expect(body.max_tokens).toBe(256);
+        return Response.json({
+          choices: [{ message: { content: '{"grade":"mastery","reason":"correct"}' } }],
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const session = { videoIds: [10], locale: "ja", studySessionId: "single" };
+
+    const opening = await runStudy(ENV, {
+      ...session,
+      messages: [{ role: "user", content: "始めます" }],
+    });
+    expect(opening.content).toContain("オアゲート");
+    expect(opening.citations?.[0]?.video_id).toBe(10);
+    expect(studySessions.commits).toHaveBeenLastCalledWith("single", 0, {
+      "1": { concept_id: 1, reached: false, hint_index: 0, last_grade: "", active: true },
+    });
+
+    const completed = await runStudy(ENV, {
+      ...session,
+      messages: [
+        { role: "assistant", content: opening.content },
+        { role: "user", content: "どちらかの入力が1なら出力が1になる論理和のゲートです" },
+      ],
+    });
+    expect(completed.content).toContain("学習パス上の概念を一通り終えました");
+    expect(studySessions.commits).toHaveBeenLastCalledWith("single", 1, {
+      "1": { concept_id: 1, reached: true, hint_index: 0, last_grade: "mastery", active: false },
+    });
+
+    const next = await runStudy(ENV, {
+      ...session,
+      messages: [
+        { role: "assistant", content: completed.content },
+        { role: "user", content: "続けます" },
+      ],
+    });
+    expect(next.content).toBe(completed.content);
+    expect(studySessions.commits).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/chat/completions")))
+      .toHaveLength(1);
+  });
+
   it("opening turn returns LO opening without calling generative LLM", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo) => {
       const url = String(input);

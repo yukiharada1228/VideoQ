@@ -66,6 +66,24 @@ describe("plog-runtime helpers", () => {
     expect(studyPathConceptIds(concepts, [])).toEqual([]);
   });
 
+  it("a single concept is a complete learning path without ordering edges", () => {
+    const single = graphOf([concept(1, "オア", 1)], []);
+    expect(studyPathConceptIds(single.concepts, single.edges)).toEqual([1]);
+    expect(orderingPathReady(single)).toBe(true);
+    expect(graphsHaveOrderingPath([graphOf([], []), single])).toBe(true);
+  });
+
+  it("an empty graph is not a learning path", () => {
+    const empty = graphOf([], []);
+    expect(studyPathConceptIds(empty.concepts, empty.edges)).toEqual([]);
+    expect(orderingPathReady(empty)).toBe(false);
+    expect(graphsHaveOrderingPath([empty])).toBe(false);
+  });
+
+  it("a single concept with an ordering self-loop is still rejected", () => {
+    expect(orderingPathReady(graphOf([concept(1, "オア", 1)], [edge(1, 1, 1)]))).toBe(false);
+  });
+
   it("study path uses ordering DAG only", () => {
     const concepts = [
       concept(1, "オア", 1),
