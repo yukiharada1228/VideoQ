@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TEST_USER_ID, testAuthHeaders } from "./helpers/auth";
+import { TAG_COLORS } from "@videoq/trpc/schema";
 
 const tagService = vi.hoisted(() => ({
   listTags: vi.fn(),
@@ -104,6 +105,110 @@ describe("tRPC Hono adapter", () => {
     expect(response.status).toBe(400);
     expect(errorLog).not.toHaveBeenCalled();
   });
+
+  it.each(["tags.create", "tags.update", "tags.replace"])(
+    "rejects colors outside the shared palette before calling the service: %s",
+    async (procedure) => {
+      for (const color of ["not-a-color", "#3b82f6", ""]) {
+        const response = await createApp().request(`/api/trpc/${procedure}`, {
+          method: "POST",
+          headers: { ...testAuthHeaders(), "content-type": "application/json" },
+          body: JSON.stringify({ id: 3, name: "Lecture", color }),
+        }, ENV);
+
+        expect(response.status).toBe(400);
+        expect(await response.json()).toMatchObject({
+          error: { data: {
+            code: "BAD_REQUEST",
+            applicationCode: "VALIDATION_ERROR",
+            details: { color: [expect.any(String)] },
+          } },
+        });
+      }
+      expect(tagService.createUserTag).not.toHaveBeenCalled();
+      expect(tagService.updateUserTag).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(TAG_COLORS)("accepts the shared palette color %s", async (color) => {
+    tagService.createUserTag.mockResolvedValue({ tag: { ...sampleTag, color } });
+    const response = await createApp().request("/api/trpc/tags.create", {
+      method: "POST",
+      headers: { ...testAuthHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ name: "Lecture", color }),
+    }, ENV);
+
+    expect(response.status).toBe(200);
+    expect(tagService.createUserTag).toHaveBeenCalledWith(ENV, TEST_USER_ID, "Lecture", color);
+  });
+
+  it("allows a name-only update of a tag with a legacy hex color", async () => {
+    const tag = { ...sampleTag, name: "Updated", color: "#3b82f6" };
+    tagService.updateUserTag.mockResolvedValue({ tag });
+    const response = await createApp().request("/api/trpc/tags.update", {
+      method: "POST",
+      headers: { ...testAuthHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ id: tag.id, name: tag.name }),
+    }, ENV);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ result: { data: tag } });
+    expect(tagService.updateUserTag).toHaveBeenCalledWith(ENV, tag.id, TEST_USER_ID, {
+      name: tag.name, color: undefined,
+    });
+  });
+
+  it("returns only declared output fields, including in nested lists", async () => {
+    tagService.listTags.mockResolvedValue({
+      count: 1,
+      results: [{ ...sampleTag, internal_secret: "private-service-value" }],
+    });
+    const response = await createApp().request("/api/trpc/tags.list", {
+      headers: testAuthHeaders(),
+    }, ENV);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ result: { data: {
+      data: [sampleTag],
+      meta: { total: 1, limit: 100, offset: 0 },
+    } } });
+  });
+
+  it.each(["query", "mutation"])(
+    "reports malformed %s outputs as internal errors without exposing validation details",
+    async (kind) => {
+      const privateValue = "private-user@example.test";
+      const invalidTag = { ...sampleTag, video_count: privateValue };
+      tagService.listTags.mockResolvedValue({ count: 1, results: [invalidTag] });
+      tagService.createUserTag.mockResolvedValue({ tag: invalidTag });
+      const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const response = await createApp().request(
+        `/api/trpc/${kind === "query" ? "tags.list" : "tags.create"}`,
+        kind === "query"
+          ? { headers: testAuthHeaders() }
+          : {
+              method: "POST",
+              headers: { ...testAuthHeaders(), "content-type": "application/json" },
+              body: JSON.stringify({ name: "Lecture" }),
+            },
+        ENV,
+      );
+
+      expect(response.status).toBe(500);
+      const payload = await response.json();
+      expect(payload).toMatchObject({ error: {
+        message: "An internal server error occurred.",
+        data: { code: "INTERNAL_SERVER_ERROR" },
+      } });
+      const serialized = JSON.stringify(payload);
+      expect(serialized).not.toContain("VALIDATION_ERROR");
+      expect(serialized).not.toContain('"details"');
+      expect(serialized).not.toContain("video_count");
+      expect(serialized).not.toContain(privateValue);
+      expect(errorLog).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(errorLog.mock.calls)).not.toContain(privateValue);
+    },
+  );
 
   it("serves a typed tag query through /api/trpc", async () => {
     tagService.listTags.mockResolvedValue({

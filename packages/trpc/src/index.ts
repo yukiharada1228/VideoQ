@@ -9,6 +9,7 @@ export {
   VIDEO_STATUSES,
   chatMessageSchema,
   chatMessagesSchema,
+  tagColorSchema,
   videoListItemSchema,
   videoSchema,
   videoSourceTypeSchema,

@@ -1,26 +1,33 @@
 import { adminProcedure, t } from "../init";
 import { adminInputSchemas } from "../inputs/admin";
+import { outputSchemas } from "../outputs";
 
 export const adminRouter = t.router({
   listUsers: adminProcedure
     .input(adminInputSchemas["admin.listUsers"])
+    .output(outputSchemas["admin.listUsers"])
     .query(({ ctx, input }) => ctx.call("admin.listUsers", input)),
-  getUser: adminProcedure.input(adminInputSchemas["admin.getUser"]).query(({ ctx, input }) =>
-    ctx.call("admin.getUser", input),
-  ),
+  getUser: adminProcedure
+    .input(adminInputSchemas["admin.getUser"])
+    .output(outputSchemas["admin.getUser"])
+    .query(({ ctx, input }) => ctx.call("admin.getUser", input)),
   patchQuota: adminProcedure
     .input(adminInputSchemas["admin.patchQuota"])
+    .output(outputSchemas["admin.patchQuota"])
     .mutation(({ ctx, input }) => ctx.call("admin.patchQuota", input)),
   patchUsage: adminProcedure
     .input(adminInputSchemas["admin.patchUsage"])
+    .output(outputSchemas["admin.patchUsage"])
     .mutation(({ ctx, input }) => ctx.call("admin.patchUsage", input)),
   patchFlags: adminProcedure
     .input(adminInputSchemas["admin.patchFlags"])
+    .output(outputSchemas["admin.patchFlags"])
     .mutation(({ ctx, input }) => ctx.call("admin.patchFlags", input)),
-  deleteUser: adminProcedure.input(adminInputSchemas["admin.deleteUser"]).mutation(({ ctx, input }) =>
-    ctx.call("admin.deleteUser", input),
-  ),
-  reindexAll: adminProcedure.mutation(({ ctx }) =>
-    ctx.call("admin.reindexAll", undefined),
-  ),
+  deleteUser: adminProcedure
+    .input(adminInputSchemas["admin.deleteUser"])
+    .output(outputSchemas["admin.deleteUser"])
+    .mutation(({ ctx, input }) => ctx.call("admin.deleteUser", input)),
+  reindexAll: adminProcedure
+    .output(outputSchemas["admin.reindexAll"])
+    .mutation(({ ctx }) => ctx.call("admin.reindexAll", undefined)),
 });
