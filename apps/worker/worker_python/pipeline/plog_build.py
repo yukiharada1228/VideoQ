@@ -24,10 +24,9 @@ def run_plog_pipeline(conn: psycopg.Connection[Any], video_id: int, transcript: 
 
     scenes = parse_srt_scenes(transcript)
     concepts = _extract_concepts(transcript, scenes)
-    if not concepts:
-        raise RuntimeError("PLOG extraction produced no concepts")
-
-    embeddings = embed_texts([c["label"] for c in concepts])
+    # An explicit empty inventory is a completed analysis, not a retryable error.
+    # Still replace previous artifacts so a rebuild cannot leave a stale graph.
+    embeddings = embed_texts([c["label"] for c in concepts]) if concepts else []
 
     # Clear previous artifacts for this video (order matters for FKs).
     conn.execute(
@@ -125,7 +124,10 @@ def _extract_concepts(transcript: str, scenes: list) -> list[dict[str, Any]]:
     client = OpenAI(api_key=api_key)
     model = env_str("LLM_MODEL", "gpt-4o-mini")
     prompt = (
-        "Extract 3-12 learning concepts from this lecture transcript for a guided study graph.\n"
+        "Extract up to 12 learning concepts from this transcript for a guided study graph.\n"
+        "Only include concepts supported by the transcript. If it contains no learning "
+        "concepts (for example, a recording test), return {\"concepts\":[]}. "
+        "Do not invent concepts to fill the graph.\n"
         "Return JSON: {\"concepts\":[{\"label\":str,\"intro_sec\":number,\"source_quote\":str,"
         "\"opening_question\":str,\"hints\":[{\"text\":str,\"level\":number}],"
         "\"misconceptions\":[str]}]}\n"
@@ -140,12 +142,16 @@ def _extract_concepts(transcript: str, scenes: list) -> list[dict[str, Any]]:
         response_format={"type": "json_object"},
     )
     data = json.loads(resp.choices[0].message.content or "{}")
-    concepts = data.get("concepts") or []
-    if not isinstance(concepts, list):
-        return []
+    if not isinstance(data, dict) or not isinstance(data.get("concepts"), list):
+        raise ValueError("PLOG extraction must return a concepts array")
+    concepts = data["concepts"]
     cleaned: list[dict[str, Any]] = []
     for c in concepts:
-        if not isinstance(c, dict) or not c.get("label"):
-            continue
-        cleaned.append(c)
+        if (
+            not isinstance(c, dict)
+            or not isinstance(c.get("label"), str)
+            or not c["label"].strip()
+        ):
+            raise ValueError("PLOG concept must have a non-empty string label")
+        cleaned.append({**c, "label": c["label"].strip()})
     return cleaned

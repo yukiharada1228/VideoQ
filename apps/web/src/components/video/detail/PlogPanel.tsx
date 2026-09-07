@@ -245,6 +245,7 @@ export function PlogPanel({ videoId, enabled = true }: PlogPanelProps) {
   }
 
   const status = normalizeStatus(data?.build_status);
+  const isEmpty = status === 'ready' && data?.concepts.length === 0;
   const isBusy =
     rebuildMutation.isPending || status === 'pending' || status === 'running';
   const primaryActionLabel =
@@ -280,10 +281,10 @@ export function PlogPanel({ videoId, enabled = true }: PlogPanelProps) {
             {!isLoading && (
               <ChipLabel
                 variant="filled-1"
-                color={statusChipColor(status)}
+                color={isEmpty ? 'gray' : statusChipColor(status)}
                 className="min-h-0 text-oln-14N-100"
               >
-                {t(`plog.statusLabel.${status}`)}
+                {t(`plog.statusLabel.${isEmpty ? 'empty' : status}`)}
               </ChipLabel>
             )}
             {isBusy && isFetching && <InlineSpinner className="text-solid-gray-560" />}
@@ -471,6 +472,16 @@ function PlogBody({
 
   return (
     <div className="space-y-6">
+      {data.concepts.length === 0 && (
+        <NotificationBanner
+          bannerStyle="standard"
+          type="info1"
+          title={t('plog.noConceptsTitle')}
+          role="status"
+        >
+          <NotificationBannerBody>{t('plog.noConceptsDescription')}</NotificationBannerBody>
+        </NotificationBanner>
+      )}
       <dl className="flex flex-wrap gap-x-6 gap-y-2 text-dns-14N-120 text-solid-gray-700">
         <div className="flex gap-2">
           <dt className="text-solid-gray-560">{t('plog.metricConcepts')}</dt>
