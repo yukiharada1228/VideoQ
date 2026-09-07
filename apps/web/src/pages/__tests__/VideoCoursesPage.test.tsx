@@ -1,5 +1,4 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import VideoCoursesPage from '../VideoCoursesPage'
 import { useI18nNavigate } from '@/lib/i18n'
 
@@ -27,57 +26,6 @@ const trpcApi = vi.hoisted(() => ({
   reorderCourses: vi.fn(),
 }))
 
-vi.mock('@/lib/trpc', () => {
-  const listKey = ['trpc', 'courses', 'list'] as const
-  return {
-    trpc: {
-      useUtils: () => {
-        const queryClient = useQueryClient()
-        return {
-          courses: {
-            list: {
-              invalidate: () => queryClient.invalidateQueries({ queryKey: listKey }),
-            },
-          },
-        }
-      },
-      courses: {
-        list: {
-          useInfiniteQuery: (
-            input: { limit: number },
-            options: {
-              enabled: boolean
-              initialCursor: number
-              getNextPageParam: (lastPage: any, allPages: any[]) => number | undefined
-            },
-          ) => useInfiniteQuery({
-            queryKey: listKey,
-            enabled: options.enabled,
-            initialPageParam: options.initialCursor,
-            queryFn: ({ pageParam }) => trpcApi.listCourses({
-              limit: input.limit,
-              cursor: pageParam,
-            }),
-            getNextPageParam: options.getNextPageParam,
-          }),
-        },
-        create: {
-          useMutation: (options: { onSuccess?: () => void | Promise<void> }) => useMutation({
-            mutationFn: (input) => trpcApi.createCourse(input),
-            onSuccess: options.onSuccess,
-          }),
-        },
-        reorder: {
-          useMutation: (options: { onSuccess?: () => void | Promise<void> }) => useMutation({
-            mutationFn: (input) => trpcApi.reorderCourses(input),
-            onSuccess: options.onSuccess,
-          }),
-        },
-      },
-    },
-  }
-})
-
 vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => ({
     user: { id: 1, username: 'testuser' },
@@ -88,6 +36,9 @@ vi.mock('@/hooks/useAuth', () => ({
 describe('VideoCoursesPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    globalThis.__setTrpcHandler('courses.list', input => trpcApi.listCourses(input))
+    globalThis.__setTrpcHandler('courses.create', input => trpcApi.createCourse(input))
+    globalThis.__setTrpcHandler('courses.reorder', input => trpcApi.reorderCourses(input))
     mockNavigate = useI18nNavigate() as ReturnType<typeof vi.fn>
     trpcApi.listCourses.mockResolvedValue(mockPaginatedGroups())
     trpcApi.reorderCourses.mockResolvedValue({ courseIds: [2, 1] })
@@ -283,6 +234,9 @@ describe('VideoCoursesPage', () => {
 describe('VideoCoursesPage - Error Handling', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    globalThis.__setTrpcHandler('courses.list', input => trpcApi.listCourses(input))
+    globalThis.__setTrpcHandler('courses.create', input => trpcApi.createCourse(input))
+    globalThis.__setTrpcHandler('courses.reorder', input => trpcApi.reorderCourses(input))
   })
 
   it('should display error message on load failure', async () => {

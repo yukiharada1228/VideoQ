@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useI18nNavigate } from '@/lib/i18n';
 import {
-  ApiError,
   type AdminFlagsPatch,
   type AdminQuotaPatch,
   type AdminUsagePatch,
   type AdminUser,
 } from '@/lib/api';
+import { ApiError, getApiError } from '@/lib/api-error';
 import { trpc } from '@/lib/trpc';
 import { AppPageShell } from '@/components/layout/AppPageShell';
 import { AppPageHeader } from '@/components/layout/AppPageHeader';
@@ -68,10 +68,10 @@ export default function AdminPage() {
   const { user, isLoading: authLoading } = useAuth();
   const { t } = useTranslation();
   const navigate = useI18nNavigate();
-  const utils = trpc.useUtils();
-  const patchFlagsMutation = trpc.admin.patchFlags.useMutation();
-  const patchQuotaMutation = trpc.admin.patchQuota.useMutation();
-  const patchUsageMutation = trpc.admin.patchUsage.useMutation();
+  const queryClient = useQueryClient();
+  const patchFlagsMutation = useMutation(trpc.admin.patchFlags.mutationOptions());
+  const patchQuotaMutation = useMutation(trpc.admin.patchQuota.mutationOptions());
+  const patchUsageMutation = useMutation(trpc.admin.patchUsage.mutationOptions());
 
   const [searchInput, setSearchInput] = useState('');
   const [query, setQuery] = useState('');
@@ -127,13 +127,13 @@ export default function AdminPage() {
     setIsEditOpen(true);
   };
 
-  const usersQuery = trpc.admin.listUsers.useQuery({
+  const usersQuery = useQuery(trpc.admin.listUsers.queryOptions({
     q: query || undefined,
     limit: PAGE_SIZE,
     offset,
   }, {
     enabled: isSuperuser,
-  });
+  }));
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -188,16 +188,16 @@ export default function AdminPage() {
       setStatusMessage({ type: 'success', text: t('admin.users.saveSuccess') });
       setIsEditOpen(false);
       setSelectedUser(null);
-      await utils.admin.listUsers.invalidate();
+      await queryClient.invalidateQueries(trpc.admin.listUsers.pathFilter());
     },
     onError: (error) => {
       const message =
-        error instanceof ApiError ? error.message : t('admin.users.saveError');
+        getApiError(error)?.message ?? t('admin.users.saveError');
       setFormError(message);
     },
   });
 
-  const reindexMutation = trpc.admin.reindexAll.useMutation({
+  const reindexMutation = useMutation(trpc.admin.reindexAll.mutationOptions({
     onSuccess: (result) => {
       setStatusMessage({
         type: 'success',
@@ -207,13 +207,13 @@ export default function AdminPage() {
     },
     onError: (error) => {
       const message =
-        error instanceof ApiError ? error.message : t('admin.reindex.error');
+        getApiError(error)?.message ?? t('admin.reindex.error');
       setStatusMessage({ type: 'error', text: message });
       setIsReindexOpen(false);
     },
-  });
+  }));
 
-  const trpcDeleteUser = trpc.admin.deleteUser.useMutation();
+  const trpcDeleteUser = useMutation(trpc.admin.deleteUser.mutationOptions());
   const deleteMutation = useMutation({
     mutationFn: async () => {
       if (!userToDelete) throw new Error('No user selected');
@@ -236,7 +236,7 @@ export default function AdminPage() {
     },
     onError: (error) => {
       const message =
-        error instanceof ApiError ? error.message : t('admin.users.deleteError');
+        getApiError(error)?.message ?? t('admin.users.deleteError');
       setStatusMessage({ type: 'error', text: message });
       setIsDeleteOpen(false);
     },

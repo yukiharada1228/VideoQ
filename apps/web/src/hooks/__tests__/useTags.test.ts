@@ -1,6 +1,5 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Tag, TagPage } from '@videoq/trpc'
+import type { Tag } from '@videoq/trpc'
 
 const trpcApi = vi.hoisted(() => ({
   listTags: vi.fn(),
@@ -8,58 +7,6 @@ const trpcApi = vi.hoisted(() => ({
   updateTag: vi.fn(),
   deleteTag: vi.fn(),
 }))
-
-vi.mock('@/lib/trpc', () => {
-  const listKey = ['trpc', 'tags', 'list'] as const
-
-  return {
-    trpc: {
-      useUtils: () => {
-        const queryClient = useQueryClient()
-        return {
-          tags: {
-            list: {
-              cancel: () => queryClient.cancelQueries({ queryKey: listKey }),
-              setData: (
-                _input: unknown,
-                updater: (previous: TagPage | undefined) => TagPage,
-              ) => queryClient.setQueryData<TagPage>(listKey, updater),
-            },
-          },
-        }
-      },
-      tags: {
-        list: {
-          useQuery: () => useQuery<TagPage>({
-            queryKey: listKey,
-            queryFn: async () => {
-              const data = await trpcApi.listTags() as Tag[]
-              return {
-                data,
-                meta: { total: data.length, limit: 100, offset: 0 },
-              }
-            },
-          }),
-        },
-        create: {
-          useMutation: () => useMutation({
-            mutationFn: (input) => trpcApi.createTag(input),
-          }),
-        },
-        update: {
-          useMutation: () => useMutation({
-            mutationFn: (input) => trpcApi.updateTag(input),
-          }),
-        },
-        delete: {
-          useMutation: () => useMutation({
-            mutationFn: (input) => trpcApi.deleteTag(input),
-          }),
-        },
-      },
-    },
-  }
-})
 
 import { useTags } from '../useTags'
 
@@ -72,6 +19,13 @@ const tag = (fields: Partial<Tag> & Pick<Tag, 'id' | 'name' | 'color'>): Tag => 
 describe('useTags', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    globalThis.__setTrpcHandler('tags.list', async () => {
+      const data = await trpcApi.listTags() as Tag[]
+      return { data, meta: { total: data.length, limit: 100, offset: 0 } }
+    })
+    globalThis.__setTrpcHandler('tags.create', input => trpcApi.createTag(input))
+    globalThis.__setTrpcHandler('tags.update', input => trpcApi.updateTag(input))
+    globalThis.__setTrpcHandler('tags.delete', input => trpcApi.deleteTag(input))
   })
 
   it('should initialize with empty tags array', async () => {

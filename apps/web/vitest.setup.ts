@@ -4,7 +4,6 @@ import '@testing-library/jest-dom/vitest'
 import React from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { createAppQueryClient } from './src/lib/queryClient'
-import { createAppTrpcClient, trpc } from './src/lib/trpc'
 import { FeedbackProvider } from './src/components/common/FeedbackProvider'
 import enTranslation from './src/i18n/locales/en/translation.json'
 import jaTranslation from './src/i18n/locales/ja/translation.json'
@@ -13,6 +12,8 @@ type MockAuthUser = { id: string; name?: string; email?: string };
 type TrpcTestHandler = (input: unknown) => unknown | Promise<unknown>;
 
 const trpcTestHandlers = new Map<string, TrpcTestHandler>();
+// Share defaults and cache between tRPC options and React, with a fresh client per test.
+let testQueryClient = createAppQueryClient();
 
 function decodeTrpcInput(value: unknown): unknown {
   if (
@@ -72,6 +73,18 @@ async function trpcTestFetch(
   });
 }
 
+vi.mock('@/lib/trpc', async () => {
+  const actual = await vi.importActual<typeof import('./src/lib/trpc')>('@/lib/trpc')
+  const { createTRPCOptionsProxy } = await import('@trpc/tanstack-react-query')
+  return {
+    ...actual,
+    trpc: createTRPCOptionsProxy({
+      client: actual.createAppTrpcClient({ fetchFn: trpcTestFetch }),
+      queryClient: () => testQueryClient,
+    }),
+  }
+})
+
 /** Mutable BA session for tests — gate auth UI without hitting /api/auth/get-session. */
 const authSessionState = vi.hoisted(() => ({
   data: { user: { id: '1', name: 'testuser', email: 'test@example.com' } } as {
@@ -97,17 +110,11 @@ vi.mock('@testing-library/react', async () => {
 
   const createWrapper = (UserWrapper?: React.ComponentType<any>) => {
     const TestQueryWrapper = ({ children, ...props }: { children?: React.ReactNode } & Record<string, unknown>) => {
-      const [queryClient] = React.useState(() => createAppQueryClient())
-      const [trpcClient] = React.useState(() => createAppTrpcClient({ fetchFn: trpcTestFetch }))
-      const appContent = React.createElement(
+      const [queryClient] = React.useState(() => testQueryClient)
+      const content = React.createElement(
         QueryClientProvider,
         { client: queryClient },
         React.createElement(FeedbackProvider, {}, children),
-      )
-      const content = React.createElement(
-        trpc.Provider,
-        { client: trpcClient, queryClient },
-        appContent,
       )
       if (!UserWrapper) {
         return content
@@ -158,6 +165,7 @@ globalThis.__clearTrpcHandlers = () => {
 }
 
 beforeEach(() => {
+  testQueryClient = createAppQueryClient()
   trpcTestHandlers.clear()
   authSessionState.data = { user: { id: '1', name: 'testuser', email: 'test@example.com' } }
   authSessionState.isPending = false
@@ -203,6 +211,7 @@ if (typeof HTMLDialogElement !== 'undefined') {
 // Cleanup after each test
 afterEach(() => {
   cleanup()
+  testQueryClient.clear()
   mockLocation.search = ''
   mockSetSearchParams.mockClear()
 })

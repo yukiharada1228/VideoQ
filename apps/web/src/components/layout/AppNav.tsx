@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import {
   Link,
   addLocalePrefix,
@@ -77,11 +77,11 @@ export function AppNav({ activePage }: AppNavProps) {
 
   const session = useAuthSession();
   const isAuthenticated = Boolean(session.data?.user);
-  const authQuery = trpc.account.me.useQuery(undefined, {
+  const authQuery = useQuery(trpc.account.me.queryOptions(undefined, {
     enabled: isAuthenticated && !session.isPending,
     retry: false,
     staleTime: 60_000,
-  });
+  }));
 
   const logoutMutation = useMutation({
     mutationFn: async () => await apiClient.logout(),

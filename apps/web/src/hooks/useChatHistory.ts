@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api';
 import { trpc } from '@/lib/trpc';
 
@@ -10,7 +10,7 @@ interface UseChatHistoryParams {
 }
 
 export function useChatHistory({ courseId, shareToken, enabled }: UseChatHistoryParams) {
-  const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
   const historyInput = useMemo(
     () => ({ courseId: courseId!, limit: 100, offset: 0 }),
     [courseId],
@@ -20,13 +20,13 @@ export function useChatHistory({ courseId, shareToken, enabled }: UseChatHistory
     [courseId],
   );
 
-  const historyQuery = trpc.chat.history.useQuery(historyInput, {
+  const historyQuery = useQuery(trpc.chat.history.queryOptions(historyInput, {
     enabled: enabled && !!courseId && !shareToken,
-  });
+  }));
 
-  const evaluationsQuery = trpc.evaluation.logs.useQuery(evaluationsInput, {
+  const evaluationsQuery = useQuery(trpc.evaluation.logs.queryOptions(evaluationsInput, {
     enabled: enabled && !!courseId && !shareToken,
-  });
+  }));
 
   useEffect(() => {
     if (enabled && historyQuery.error) {
@@ -80,7 +80,7 @@ export function useChatHistory({ courseId, shareToken, enabled }: UseChatHistory
   const syncFeedbackInHistoryCache = useCallback(
     (chatLogId: number, nextFeedback: 'good' | 'bad' | null) => {
       if (!courseId || shareToken) return;
-      utils.chat.history.setData(historyInput, (prev) =>
+      queryClient.setQueryData(trpc.chat.history.queryKey(historyInput), (prev) =>
         prev
           ? {
               ...prev,
@@ -88,10 +88,9 @@ export function useChatHistory({ courseId, shareToken, enabled }: UseChatHistory
                 item.id === chatLogId ? { ...item, feedback: nextFeedback } : item,
               ),
             }
-          : prev,
-      );
+          : prev);
     },
-    [courseId, historyInput, shareToken, utils.chat.history],
+    [courseId, historyInput, shareToken, queryClient],
   );
 
   return {

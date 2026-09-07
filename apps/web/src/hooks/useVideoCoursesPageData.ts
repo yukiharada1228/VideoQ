@@ -1,3 +1,4 @@
+import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { trpc } from '@/lib/trpc';
 
 interface UseCreateVideoCourseMutationParams {
@@ -7,14 +8,14 @@ interface UseCreateVideoCourseMutationParams {
 export function useCreateVideoCourseMutation({
   onSuccess,
 }: UseCreateVideoCourseMutationParams) {
-  const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
 
-  return trpc.courses.create.useMutation({
+  return useMutation(trpc.courses.create.mutationOptions({
     onSuccess: async () => {
-      await utils.courses.list.invalidate();
+      await queryClient.invalidateQueries(trpc.courses.list.pathFilter());
       await onSuccess?.();
     },
-  });
+  }));
 }
 
 interface UseReorderVideoCoursesMutationParams {
@@ -24,12 +25,12 @@ interface UseReorderVideoCoursesMutationParams {
 export function useReorderVideoCoursesMutation({
   onSuccess,
 }: UseReorderVideoCoursesMutationParams) {
-  const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
 
-  return trpc.courses.reorder.useMutation({
+  return useMutation(trpc.courses.reorder.mutationOptions({
     onSuccess: async () => {
-      await utils.courses.list.invalidate();
+      await queryClient.invalidateQueries(trpc.courses.list.pathFilter());
       await onSuccess?.();
     },
-  });
+  }));
 }

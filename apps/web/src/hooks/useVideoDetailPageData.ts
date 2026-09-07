@@ -22,7 +22,7 @@ export function useVideoDetailPageMutations({
 }: UseVideoDetailPageMutationsParams) {
   const queryClient = useQueryClient();
 
-  const deleteMutation = trpc.videos.delete.useMutation({
+  const deleteMutation = useMutation(trpc.videos.delete.mutationOptions({
     onSuccess: async () => {
       if (videoId) {
         await invalidateAfterVideoDelete(queryClient, videoId);
@@ -32,7 +32,7 @@ export function useVideoDetailPageMutations({
     onError: (err) => {
       onDeleteError?.(err);
     },
-  });
+  }));
 
   const updateMutation = useMutation({
     mutationFn: async () => {

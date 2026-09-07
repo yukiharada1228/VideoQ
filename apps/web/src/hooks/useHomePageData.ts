@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { trpc } from '@/lib/trpc';
 
 interface UseHomePageDataParams {
@@ -5,15 +6,15 @@ interface UseHomePageDataParams {
 }
 
 export function useHomePageData({ userId }: UseHomePageDataParams) {
-  const videosQuery = trpc.videos.list.useQuery({
+  const videosQuery = useQuery(trpc.videos.list.queryOptions({
     limit: 5,
     ordering: 'uploaded_at_desc',
   }, {
     enabled: !!userId,
-  });
-  const coursesQuery = trpc.courses.list.useQuery({ limit: 1 }, {
+  }));
+  const coursesQuery = useQuery(trpc.courses.list.queryOptions({ limit: 1 }, {
     enabled: !!userId,
-  });
+  }));
 
   return {
     videos: videosQuery.data?.data ?? [],

@@ -1,3 +1,4 @@
+import { useMutation } from '@tanstack/react-query';
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { flushSync } from 'react-dom';
 import { useTranslation } from 'react-i18next';
@@ -155,7 +156,7 @@ export function useChatMessages({ courseId, shareToken, mode = 'qa' }: UseChatMe
     };
   }, [streamController]);
 
-  const feedbackMutation = trpc.chat.feedback.useMutation();
+  const feedbackMutation = useMutation(trpc.chat.feedback.mutationOptions());
 
   const handleSend = useCallback(async () => {
     if (!input.trim() || sendInFlightRef.current) return;

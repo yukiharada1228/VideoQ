@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Video } from '@videoq/trpc';
 import { trpc } from '@/lib/trpc';
 
@@ -22,10 +22,10 @@ interface UseVideoEditingReturn {
 }
 
 export function useVideoEditing({ video, videoId }: UseVideoEditingOptions): UseVideoEditingReturn {
-  const utils = trpc.useUtils();
-  const updateVideoMutation = trpc.videos.update.useMutation();
-  const addTagsMutation = trpc.memberships.addTags.useMutation();
-  const removeTagMutation = trpc.memberships.removeTag.useMutation();
+  const queryClient = useQueryClient();
+  const updateVideoMutation = useMutation(trpc.videos.update.mutationOptions());
+  const addTagsMutation = useMutation(trpc.memberships.addTags.mutationOptions());
+  const removeTagMutation = useMutation(trpc.memberships.removeTag.mutationOptions());
   const [isEditing, setIsEditing] = useState(false);
   const [editedTitle, setEditedTitle] = useState('');
   const [editedDescription, setEditedDescription] = useState('');
@@ -58,8 +58,8 @@ export function useVideoEditing({ video, videoId }: UseVideoEditingOptions): Use
     onSuccess: async () => {
       if (!videoId) return;
       await Promise.all([
-        utils.videos.get.invalidate({ id: videoId }),
-        utils.videos.list.invalidate(),
+        queryClient.invalidateQueries(trpc.videos.get.queryFilter({ id: videoId })),
+        queryClient.invalidateQueries(trpc.videos.list.pathFilter()),
       ]);
     },
   });

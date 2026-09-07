@@ -1,3 +1,4 @@
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -21,17 +22,17 @@ export default function CourseInvitationPage() {
   const session = useAuthSession();
   const [decision, setDecision] = useState<'declined' | null>(null);
 
-  const invitationQuery = trpc.courseMemberships.preview.useQuery({ token }, {
+  const invitationQuery = useQuery(trpc.courseMemberships.preview.queryOptions({ token }, {
     enabled: Boolean(token),
     retry: false,
-  });
+  }));
 
-  const acceptMutation = trpc.courseMemberships.accept.useMutation({
+  const acceptMutation = useMutation(trpc.courseMemberships.accept.mutationOptions({
     onSuccess: (result) => navigate(`/videos/courses/${result.course_id}`),
-  });
-  const declineMutation = trpc.courseMemberships.decline.useMutation({
+  }));
+  const declineMutation = useMutation(trpc.courseMemberships.decline.mutationOptions({
     onSuccess: () => setDecision('declined'),
-  });
+  }));
 
   const invitation = invitationQuery.data;
   const isSignedIn = Boolean(session.data?.user);

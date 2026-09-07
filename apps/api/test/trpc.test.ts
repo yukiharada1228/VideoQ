@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TEST_USER_ID, testAuthHeaders } from "./helpers/auth";
 
 const tagService = vi.hoisted(() => ({
@@ -60,6 +60,49 @@ const sampleVideoStats = {
 describe("tRPC Hono adapter", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("logs a service exception with request and procedure context without request secrets", async () => {
+    const privateValue = "private-user@example.test";
+    const cause = Object.assign(new Error(`Key (email)=(${privateValue}) already exists`), {
+      code: "23505", constraint: "users_email_key",
+    });
+    const error = new Error(`Failed query with parameters: ${privateValue}`, { cause });
+    tagService.listTags.mockRejectedValueOnce(error);
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const response = await createApp().request(
+      `/api/trpc/tags.list?secret=${privateValue}`,
+      { headers: { ...testAuthHeaders(), "x-request-id": "trpc-error-test", cookie: "session=private-cookie" } },
+      ENV,
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({ error: { message: "An internal server error occurred." } });
+    expect(errorLog).toHaveBeenCalledTimes(1);
+    const logged = errorLog.mock.calls[0][0] as string;
+    expect(JSON.parse(logged)).toMatchObject({
+      level: "error", requestId: "trpc-error-test", path: "/api/trpc/tags.list",
+      procedure: "tags.list", type: "query", code: "INTERNAL_SERVER_ERROR",
+      error: { name: "Error", pgCode: "23505", constraint: "users_email_key" },
+      stack: expect.stringContaining("at "),
+    });
+    expect(logged).not.toContain(privateValue);
+    expect(logged).not.toContain("private-cookie");
+    expect(logged).not.toContain("Failed query");
+  });
+
+  it("does not log validation failures as internal exceptions", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const response = await createApp().request("/api/trpc/tags.create", {
+      method: "POST", headers: { ...testAuthHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ name: "" }),
+    }, ENV);
+    expect(response.status).toBe(400);
+    expect(errorLog).not.toHaveBeenCalled();
   });
 
   it("serves a typed tag query through /api/trpc", async () => {

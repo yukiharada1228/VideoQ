@@ -22,9 +22,10 @@ flowchart LR
 ```text
 packages/trpc/
 ├── src/init.ts          tRPC 初期化、認証・権限 middleware、error formatter
-├── src/routers/         domain router と Zod input
+├── src/inputs/          Zod input（validation と handler 入力型の定義元）
+├── src/routers/         domain router と procedure の接続
 ├── src/router.ts        AppRouter の合成
-├── src/contracts.ts     handler が実装する procedure 入出力 map
+├── src/contracts.ts     Zod から導出する入力 map と handler の出力契約
 ├── src/models.ts        API / SPA 共有 DTO
 ├── src/context.ts       framework 非依存の request context
 └── src/schema.ts        runtime 共有定数
@@ -34,12 +35,27 @@ apps/api/src/trpc/
 └── handlers/            service を procedure 契約へ接続する
 
 apps/web/src/lib/
-├── trpc.ts              batch client、401、ApiError 変換
+├── trpc.ts              batch client、TanStack Query options、procedure 単位の401検知
+├── api-error.ts         raw HTTP / tRPC の共通エラー読み取り
 └── api.ts               Better Auth・SSE・CSV・upload・media URL adapter
 ```
 
 `packages/trpc` は Hono、DB、Cloudflare bindings に依存しません。API 実装は
 `ctx.call()` の adapter として注入し、Web は `AppRouter` を type-only import します。
+
+入力スキーマは `src/inputs/` に一度だけ定義します。procedure の `.input()` と
+`RpcInputMap` が同じスキーマを参照し、handler には `z.output` で default / transform
+適用後の型を渡します。SPA の呼び出し側の型は引き続き `AppRouter` から推論します。
+
+## React とキャッシュ
+
+`@trpc/tanstack-react-query` の `createTRPCOptionsProxy` を使い、
+`useQuery(trpc.videos.get.queryOptions({ id }))` のように TanStack Query の hooks を呼びます。
+Vite SPA の client と QueryClient は共有し、`QueryClientProvider` でキャッシュを渡します。
+
+キャッシュ操作は `useQueryClient()` を使います。個別データには `queryKey()` /
+`queryFilter()`、一覧全体には `pathFilter()` を使い、通常 query と infinite query の
+両方を更新します。無限スクロールは `infiniteQueryOptions()` と `initialCursor: 0` を使います。
 
 ## 認証と権限
 
@@ -63,11 +79,20 @@ HTTP protocol または payload transport 自体に意味があるものだけ r
 - chat SSE
 - chat history CSV export
 
-新しい通常 JSON 操作は Hono route へ追加せず、`packages/trpc/src/routers` と
-`apps/api/src/trpc/handlers` に procedure を追加します。
+新しい通常 JSON 操作は `packages/trpc/src/inputs` に入力スキーマを定義し、
+`packages/trpc/src/routers` と `apps/api/src/trpc/handlers` に procedure を追加します。
 
 ## Error contract
 
 tRPC の標準 error code / HTTP status に加え、既存 UI が判断に使う
 `applicationCode` と field validation の `details` を error data に保持します。
 内部エラーの message は公開時に固定文へ置き換えます。
+
+SPA は tRPC 標準の `TRPCClientError` をそのまま受け取り、画面で application code や
+details が必要な場合は `getApiError()` を使います。認証切れは link で procedure ごとに
+判定し、HTTP 207 の混在 batch にも対応します。同じ HTTP response でのログアウト通知は
+一度だけ行います。
+
+tRPC の内部例外は adapter の `onError` で request ID、procedure、error code、
+安全なエラー属性と stack frame を記録します。入力値、Cookie、query string、
+エラーメッセージ中の SQL parameter や個人情報は記録しません。

@@ -1,5 +1,5 @@
-import { z } from "zod";
 import { protectedProcedure, t } from "../init";
+import { accountInputSchemas } from "../inputs/account";
 
 export const accountRouter = t.router({
   me: protectedProcedure.query(({ ctx }) => ctx.call("account.me", undefined)),
@@ -7,7 +7,7 @@ export const accountRouter = t.router({
     ctx.call("account.searchApiKeyStatus", undefined),
   ),
   saveSearchApiKey: protectedProcedure
-    .input(z.object({ apiKey: z.string().min(1) }))
+    .input(accountInputSchemas["account.saveSearchApiKey"])
     .mutation(({ ctx, input }) => ctx.call("account.saveSearchApiKey", input)),
   deleteSearchApiKey: protectedProcedure.mutation(({ ctx }) =>
     ctx.call("account.deleteSearchApiKey", undefined),

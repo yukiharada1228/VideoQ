@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useCallback, useRef } from 'react';
 import { useI18nNavigate, useI18nLocation, removeLocalePrefix } from '@/lib/i18n';
 import type { User } from '@/lib/api';
@@ -31,11 +32,11 @@ export function useAuth(options: UseAuthOptions = {}): UseAuthReturn {
   const authRequired = !isPublicAuthPath(pathname);
   const hasSession = Boolean(session.data?.user);
 
-  const authQuery = trpc.account.me.useQuery(undefined, {
+  const authQuery = useQuery(trpc.account.me.queryOptions(undefined, {
     enabled: authRequired && !session.isPending && hasSession,
     retry: false,
     staleTime: 60_000,
-  });
+  }));
 
   useEffect(() => {
     if (!authRequired || session.isPending) return;

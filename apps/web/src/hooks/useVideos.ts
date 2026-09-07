@@ -1,3 +1,4 @@
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useCallback, useMemo, useEffect, useState, useRef } from 'react';
 import type { Video, VideoListItem as VideoListType } from '@videoq/trpc';
 import { useAuth } from '@/hooks/useAuth';
@@ -39,7 +40,7 @@ export function useVideos(params?: UseVideosParams): UseVideosReturn {
   const status = params?.status?.trim() || undefined;
   const ordering: VideosOrdering | undefined = params?.ordering || undefined;
 
-  const videosQuery = trpc.videos.list.useInfiniteQuery({
+  const videosQuery = useInfiniteQuery(trpc.videos.list.infiniteQueryOptions({
     tags: normalizedTagIds,
     q,
     status,
@@ -51,7 +52,7 @@ export function useVideos(params?: UseVideosParams): UseVideosReturn {
       const nextOffset = lastPage.meta.offset + lastPage.data.length;
       return nextOffset < lastPage.meta.total ? nextOffset : undefined;
     },
-  });
+  }));
 
   const videos = useMemo(
     () => videosQuery.data?.pages.flatMap((page) => page.data) ?? [],
@@ -123,9 +124,9 @@ interface UseVideoReturn {
 export function useVideo(videoId: number | null): UseVideoReturn {
   const { user, isLoading: authLoading, refetch: refetchAuth } = useAuth();
 
-  const videoQuery = trpc.videos.get.useQuery({ id: videoId! }, {
+  const videoQuery = useQuery(trpc.videos.get.queryOptions({ id: videoId! }, {
     enabled: !!videoId && !!user,
-  });
+  }));
 
   const handleLoadVideo = useCallback(async () => {
     if (!videoId) return;
