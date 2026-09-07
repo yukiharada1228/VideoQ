@@ -1,9 +1,6 @@
 import { isS3Storage, resolveFileUrl } from "../../integrations/media";
 import {
-  isSafeMediaPath,
-  findVideoIdByFilePath,
-  isVideoAccessibleToUser,
-  isVideoInCourse,
+  isMediaPathAccessible,
   resolveShareSlugCourseId as repositoryResolveShareSlugCourseId,
 } from "../../repositories/media-repository";
 import type { Bindings } from "../../types/bindings";
@@ -32,21 +29,7 @@ export async function authorizeMediaPath(
   path: string,
   opts: { userId?: string; shareCourseId?: number },
 ): Promise<{ ok: true; objectKey: string } | { notFound: true }> {
-  if (!isSafeMediaPath(path)) return { notFound: true };
-  const videoId = await findVideoIdByFilePath(env, path);
-  if (videoId === null) return { notFound: true };
-
-  if (opts.shareCourseId != null) {
-    if (!(await isVideoInCourse(env, videoId, opts.shareCourseId))) {
-      return { notFound: true };
-    }
-  } else if (opts.userId != null) {
-    if (!(await isVideoAccessibleToUser(env, videoId, opts.userId))) {
-      return { notFound: true };
-    }
-  } else {
-    return { notFound: true };
-  }
+  if (!(await isMediaPathAccessible(env, path, opts))) return { notFound: true };
 
   return { ok: true, objectKey: `media/${path}` };
 }

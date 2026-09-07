@@ -20,18 +20,33 @@ variable "worker_lambda_timeout_seconds" {
   description = "Worker Lambda のタイムアウト (秒) (Lambda 最大 15 分)"
   type        = number
   default     = 900
+
+  validation {
+    condition     = var.worker_lambda_timeout_seconds >= 1 && var.worker_lambda_timeout_seconds <= 900 && floor(var.worker_lambda_timeout_seconds) == var.worker_lambda_timeout_seconds
+    error_message = "Lambda timeout must be an integer between 1 and 900 seconds."
+  }
 }
 
 variable "sqs_visibility_timeout_seconds" {
-  description = "SQS の visibility timeout (秒) (worker_lambda_timeout_seconds 以上に設定すること)"
+  description = "SQS の visibility timeout (秒)。Lambda のタイムアウトの6倍以上。"
   type        = number
-  default     = 960
+  default     = 5400
+
+  validation {
+    condition     = var.sqs_visibility_timeout_seconds >= 6 * var.worker_lambda_timeout_seconds && var.sqs_visibility_timeout_seconds <= 43200 && floor(var.sqs_visibility_timeout_seconds) == var.sqs_visibility_timeout_seconds
+    error_message = "SQS visibility timeout must be an integer at least 6 times the Lambda timeout and at most 43200 seconds."
+  }
 }
 
 variable "sqs_max_receive_count" {
   description = "SQS のメッセージ最大受信回数 (超過で DLQ へ送信)"
   type        = number
-  default     = 3
+  default     = 5
+
+  validation {
+    condition     = var.sqs_max_receive_count >= 5 && var.sqs_max_receive_count <= 1000 && floor(var.sqs_max_receive_count) == var.sqs_max_receive_count
+    error_message = "SQS max receive count must be an integer between 5 and 1000."
+  }
 }
 
 variable "lambda_log_retention_days" {

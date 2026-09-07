@@ -13,6 +13,7 @@ import { deliverInvitationEmail } from "../src/lib/invitation-delivery";
 
 const ENV = { FRONTEND_URL: "https://videoq.example" } as never;
 const NOW = new Date("2026-08-22T00:00:00.000Z");
+const LEASE = { id: 77, attempt: 2 };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -31,7 +32,7 @@ describe("deliverInvitationEmail", () => {
       inviterName: "Teacher",
     });
 
-    const result = await deliverInvitationEmail(ENV, 10, NOW);
+    const result = await deliverInvitationEmail(ENV, 10, LEASE, NOW);
 
     expect(result).toEqual({ delivered: true });
     const storedHash = repo.rotateInvitationTokenForDelivery.mock.calls[0][2];
@@ -47,7 +48,7 @@ describe("deliverInvitationEmail", () => {
     expect(repo.recordInvitationDeliveryOutcomes).toHaveBeenCalledWith(
       ENV,
       [{ invitationId: 10, status: "sent", attemptedAt: NOW }],
-      {},
+      { lease: LEASE, completeTask: true },
     );
   });
 
@@ -59,12 +60,12 @@ describe("deliverInvitationEmail", () => {
     });
     mail.sendMail.mockRejectedValue(new Error("provider unavailable"));
 
-    await expect(deliverInvitationEmail(ENV, 10, NOW)).rejects.toThrow(
+    await expect(deliverInvitationEmail(ENV, 10, LEASE, NOW)).rejects.toThrow(
       "provider unavailable",
     );
     expect(repo.recordInvitationDeliveryOutcomes).toHaveBeenCalledWith(ENV, [
       expect.objectContaining({ invitationId: 10, status: "failed" }),
-    ]);
+    ], { lease: LEASE });
   });
 
   it("取り消された招待にはメールを送らない", async () => {
@@ -72,7 +73,7 @@ describe("deliverInvitationEmail", () => {
       invalidState: "revoked",
     });
 
-    const result = await deliverInvitationEmail(ENV, 10, NOW);
+    const result = await deliverInvitationEmail(ENV, 10, LEASE, NOW);
 
     expect(result).toEqual({ skipped: true, reason: "revoked" });
     expect(mail.sendMail).not.toHaveBeenCalled();
@@ -82,7 +83,7 @@ describe("deliverInvitationEmail", () => {
   it("削除済みの招待も同様にスキップする", async () => {
     repo.rotateInvitationTokenForDelivery.mockResolvedValue({ notFound: true });
 
-    const result = await deliverInvitationEmail(ENV, 10, NOW);
+    const result = await deliverInvitationEmail(ENV, 10, LEASE, NOW);
 
     expect(result).toEqual({ skipped: true, reason: "notFound" });
     expect(mail.sendMail).not.toHaveBeenCalled();
@@ -97,12 +98,12 @@ describe("配送タスクの完了", () => {
       inviterName: "Teacher",
     });
 
-    await deliverInvitationEmail(ENV, 10, NOW, { completeTaskId: 77 });
+    await deliverInvitationEmail(ENV, 10, LEASE, NOW);
 
     expect(repo.recordInvitationDeliveryOutcomes).toHaveBeenCalledWith(
       ENV,
       [{ invitationId: 10, status: "sent", attemptedAt: NOW }],
-      { completeTaskId: 77 },
+      { lease: LEASE, completeTask: true },
     );
   });
 
@@ -115,10 +116,10 @@ describe("配送タスクの完了", () => {
     mail.sendMail.mockRejectedValue(new Error("provider unavailable"));
 
     await expect(
-      deliverInvitationEmail(ENV, 10, NOW, { completeTaskId: 77 }),
+      deliverInvitationEmail(ENV, 10, LEASE, NOW),
     ).rejects.toThrow("provider unavailable");
 
     const call = repo.recordInvitationDeliveryOutcomes.mock.calls[0];
-    expect(call[2]).toBeUndefined();
+    expect(call[2]).toEqual({ lease: LEASE });
   });
 });

@@ -19,8 +19,8 @@ export async function withClient<T>(
   const client = new pg.Client({
     connectionString: env.HYPERDRIVE.connectionString,
   });
-  await client.connect();
   try {
+    await client.connect();
     return await fn(client);
   } finally {
     await client.end();

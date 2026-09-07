@@ -34,11 +34,12 @@ worker_lambda_timeout_seconds = 900
 # --- SQS settings ------------------------------------------------------------
 
 # SQS visibility timeout in seconds.
-# Keep this at or above worker_lambda_timeout_seconds; timeout + 60 is recommended.
-sqs_visibility_timeout_seconds = 960
+# At least 6 * worker_lambda_timeout_seconds, including time for throttling retries.
+# Failed messages can take this long to become available for retry.
+sqs_visibility_timeout_seconds = 5400
 
 # Maximum message receive count before routing to the DLQ.
-sqs_max_receive_count = 3
+sqs_max_receive_count = 5
 
 # --- Operations monitoring --------------------------------------------------
 

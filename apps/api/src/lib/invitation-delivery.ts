@@ -5,6 +5,7 @@ import {
 import type { Bindings } from "../types/bindings";
 import { createInvitationToken, hashInvitationToken } from "./course-invitations";
 import { sendMail } from "./mail";
+import type { ExternalTaskLease } from "../repositories/external-task-repository";
 
 function frontendBaseUrl(env: Bindings): string {
   return (env.FRONTEND_URL?.trim() || "https://videoq.jp").replace(/\/+$/, "");
@@ -45,8 +46,8 @@ export type InvitationDeliveryResult =
 export async function deliverInvitationEmail(
   env: Bindings,
   invitationId: number,
+  lease: ExternalTaskLease,
   now = new Date(),
-  opts: { completeTaskId?: number } = {},
 ): Promise<InvitationDeliveryResult> {
   const token = createInvitationToken();
   const rotated = await rotateInvitationTokenForDelivery(
@@ -54,6 +55,7 @@ export async function deliverInvitationEmail(
     invitationId,
     await hashInvitationToken(token),
     now,
+    lease,
   );
   if ("notFound" in rotated) {
     return { skipped: true, reason: "notFound" };
@@ -76,9 +78,11 @@ export async function deliverInvitationEmail(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     // 失敗も記録してからthrowする。task 側のバックオフで再試行される。
-    await recordInvitationDeliveryOutcomes(env, [
-      { invitationId, status: "failed", attemptedAt: now, error: message },
-    ]);
+    await recordInvitationDeliveryOutcomes(
+      env,
+      [{ invitationId, status: "failed", attemptedAt: now, error: message }],
+      { lease },
+    );
     throw error;
   }
 
@@ -86,7 +90,7 @@ export async function deliverInvitationEmail(
   await recordInvitationDeliveryOutcomes(
     env,
     [{ invitationId, status: "sent", attemptedAt: now }],
-    opts,
+    { lease, completeTask: true },
   );
   return { delivered: true };
 }

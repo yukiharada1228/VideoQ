@@ -16,6 +16,7 @@ import {
 } from "../lib/course-invitations";
 import { toUtcIso } from "../shared/datetime";
 import type { Bindings } from "../types/bindings";
+import { lockExternalTaskLease, type ExternalTaskLease } from "./external-task-repository";
 
 export type PendingInvitationInput = {
   email: string;
@@ -206,18 +207,18 @@ export type InvitationDeliveryOutcome = {
 };
 
 /**
- * 配信結果を記録する。`completeTaskId` を渡すと、配送タスクの完了も同じ
- * transaction で行う（`withDb` は呼び出しごとに新しい接続を張るため、
- * 記録と完了を分けると1通あたりの接続が1回増える）。
+ * 配信結果と配送タスク完了を同じ transaction で記録する。
+ * 成功・失敗のどちらも lease を確認し、古い実行者による上書きを防ぐ。
  */
 export async function recordInvitationDeliveryOutcomes(
   env: Bindings,
   outcomes: readonly InvitationDeliveryOutcome[],
-  opts: { completeTaskId?: number } = {},
+  opts: { lease: ExternalTaskLease; completeTask?: boolean },
 ): Promise<void> {
-  if (outcomes.length === 0 && opts.completeTaskId === undefined) return;
+  if (outcomes.length === 0 && !opts.completeTask) return;
   await withDb(env, async (db) =>
     db.transaction(async (tx) => {
+      await lockExternalTaskLease(tx, opts.lease);
       for (const outcome of outcomes) {
         await tx
           .update(videoCourseInvitations)
@@ -231,7 +232,7 @@ export async function recordInvitationDeliveryOutcomes(
           })
           .where(eq(videoCourseInvitations.id, outcome.invitationId));
       }
-      if (opts.completeTaskId !== undefined) {
+      if (opts.completeTask) {
         await tx
           .update(externalTasks)
           .set({
@@ -242,7 +243,7 @@ export async function recordInvitationDeliveryOutcomes(
           })
           .where(
             and(
-              eq(externalTasks.id, opts.completeTaskId),
+              eq(externalTasks.id, opts.lease.id),
               sql`${externalTasks.completedAt} IS NULL`,
             ),
           );
@@ -596,6 +597,7 @@ export async function rotateInvitationTokenForDelivery(
   invitationId: number,
   tokenHash: string,
   now: Date,
+  lease: ExternalTaskLease,
 ): Promise<
   | { notFound: true }
   | { invalidState: InvitationStatus }
@@ -603,6 +605,7 @@ export async function rotateInvitationTokenForDelivery(
 > {
   return withDb(env, async (db) =>
     db.transaction(async (tx) => {
+      await lockExternalTaskLease(tx, lease);
       const rows = await tx
         .select({
           id: videoCourseInvitations.id,
