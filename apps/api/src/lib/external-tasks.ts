@@ -29,7 +29,7 @@ async function runTask(env: Bindings, task: ClaimedExternalTask): Promise<void> 
     const message = objectPayload(task.payload.message);
     const messageId = await sendSqsMessage(env, JSON.stringify(message));
     if (!messageId) throw new Error("SQS job delivery failed.");
-    await completeExternalTask(env, task.id);
+    await completeExternalTask(env, task);
     return;
   }
 
@@ -48,7 +48,7 @@ async function runTask(env: Bindings, task: ClaimedExternalTask): Promise<void> 
     }
     if (fileKey) await deleteR2Object(env, fileKey);
     await completeStorageCleanupTask(env, {
-      taskId: task.id,
+      lease: task,
       userId,
       bytes: bytes as number | null,
     });
@@ -61,11 +61,9 @@ async function runTask(env: Bindings, task: ClaimedExternalTask): Promise<void> 
       throw new Error("Invitation email invitation_id is invalid.");
     }
     // 取り消し済み・承認済みの招待は送らずにタスクだけ閉じる。
-    const result = await deliverInvitationEmail(env, invitationId, new Date(), {
-      completeTaskId: task.id,
-    });
+    const result = await deliverInvitationEmail(env, invitationId, task);
     // 送信をスキップした場合は上の transaction が走らないので、ここで閉じる。
-    if (!("delivered" in result)) await completeExternalTask(env, task.id);
+    if (!("delivered" in result)) await completeExternalTask(env, task);
     return;
   }
 
@@ -76,30 +74,43 @@ export async function processExternalTasks(
   env: Bindings,
   options: { limit?: number; taskId?: number } = {},
 ): Promise<ExternalTaskRunResult> {
-  const tasks = await claimExternalTasks(env, {
-    limit: options.taskId === undefined ? (options.limit ?? 50) : 1,
-    taskId: options.taskId,
-  });
+  const limit = options.taskId === undefined ? (options.limit ?? 50) : 1;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    throw new Error("External task limit must be an integer between 1 and 100.");
+  }
   const result: ExternalTaskRunResult = {
-    claimed: tasks.length,
+    claimed: 0,
     completed: 0,
     failed: 0,
     dead: 0,
   };
 
-  for (const task of tasks) {
+  // Claim only when ready to execute; later tasks must not wait out their lease.
+  // Exclude attempted IDs so a slow run does not retry its own failed deliveries.
+  const attemptedIds: number[] = [];
+  for (let index = 0; index < limit; index += 1) {
+    const [task] = await claimExternalTasks(env, {
+      limit: 1,
+      taskId: options.taskId,
+      excludeTaskIds: [...attemptedIds],
+    });
+    if (!task) break;
+    attemptedIds.push(task.id);
+    result.claimed += 1;
     try {
       await runTask(env, task);
       result.completed += 1;
     } catch (error) {
       result.failed += 1;
       const message = error instanceof Error ? error.message : String(error);
-      const failure = await failExternalTask(env, task.id, message);
+      const failure = await failExternalTask(env, task, message);
       if (failure.dead) result.dead += 1;
       console.error(
         JSON.stringify({
-          event: failure.dead ? "external_task_dead" : "external_task_failed",
+          event: failure.leaseLost ? "external_task_lease_lost"
+            : failure.dead ? "external_task_dead" : "external_task_failed",
           taskId: task.id,
+          attempt: task.attempt,
           kind: task.kind,
           error: message,
         }),

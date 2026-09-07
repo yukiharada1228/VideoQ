@@ -1,7 +1,7 @@
 import { alias } from "drizzle-orm/pg-core";
 import { and, asc, count, eq, sql } from "drizzle-orm";
 import { TAG_COLORS as TRPC_TAG_COLORS } from "@videoq/trpc";
-import { withDb } from "../db/pool";
+import { type Db, withDb } from "../db/pool";
 import { tags, videos, videoTags } from "../db/schema";
 import { toUtcIso } from "../shared/datetime";
 import {
@@ -97,42 +97,43 @@ export async function listTagsPage(
  * タグ詳細。未所有または不在は null。
  * videos は該当 VideoTag の動画一覧表現を返し、安定した挿入順として vt.id ASC を用いる。
  */
-export async function getTagDetail(
-  env: Bindings,
+async function readTagDetail(
+  db: Db,
   tagId: number,
   userId: string,
-): Promise<TagDetail | null> {
-  const data = await withDb(env, async (db) => {
-    const tagRows = await db
-      .select(tagListSelect)
-      .from(tags)
-      .where(and(eq(tags.id, tagId), eq(tags.userId, userId)))
-      .limit(1);
-    if (tagRows.length === 0) return null;
+) {
+  const tagRows = await db
+    .select(tagListSelect)
+    .from(tags)
+    .where(and(eq(tags.id, tagId), eq(tags.userId, userId)))
+    .limit(1);
+  if (tagRows.length === 0) return null;
 
-    const videoRows = await db
-      .select({
-        id: v.id,
-        file: v.file,
-        title: v.title,
-        description: v.description,
-        uploaded_at: v.uploadedAt,
-        status: v.status,
-        source_type: v.sourceType,
-        source_url: v.sourceUrl,
-        youtube_video_id: v.youtubeVideoId,
-        tags: sql<string>`${sql.raw(TAGS_SUBQUERY)}`.as("tags"),
-      })
-      .from(videoTags)
-      .innerJoin(v, eq(videoTags.videoId, v.id))
-      .where(eq(videoTags.tagId, tagId))
-      .orderBy(asc(videoTags.id));
+  const videoRows = await db
+    .select({
+      id: v.id,
+      file: v.file,
+      title: v.title,
+      description: v.description,
+      uploaded_at: v.uploadedAt,
+      status: v.status,
+      source_type: v.sourceType,
+      source_url: v.sourceUrl,
+      youtube_video_id: v.youtubeVideoId,
+      tags: sql<string>`${sql.raw(TAGS_SUBQUERY)}`.as("tags"),
+    })
+    .from(videoTags)
+    .innerJoin(v, eq(videoTags.videoId, v.id))
+    .where(eq(videoTags.tagId, tagId))
+    .orderBy(asc(videoTags.id));
 
-    return { tag: tagRows[0], videoRows };
-  });
+  return { tag: tagRows[0], videoRows };
+}
 
-  if (!data) return null;
-
+async function mapTagDetail(
+  env: Bindings,
+  data: NonNullable<Awaited<ReturnType<typeof readTagDetail>>>,
+): Promise<TagDetail> {
   const videos = await Promise.all(
     data.videoRows.map((r) => mapVideoListRow(env, r)),
   );
@@ -148,7 +149,16 @@ export async function getTagDetail(
   };
 }
 
-/** タグの存在（所有）確認。update で 404 を 400(ドメイン検証)より先に返すため。 */
+export async function getTagDetail(
+  env: Bindings,
+  tagId: number,
+  userId: string,
+): Promise<TagDetail | null> {
+  const data = await withDb(env, (db) => readTagDetail(db, tagId, userId));
+  return data ? mapTagDetail(env, data) : null;
+}
+
+/** Membership operations also need an ownership check without loading tag videos. */
 export async function tagExists(
   env: Bindings,
   tagId: number,
@@ -165,7 +175,8 @@ export async function tagExists(
 }
 
 /**
- * タグ更新（提供フィールドのみ動的 SET）。存在確認は呼び出し側で済ませる前提。
+ * 所有確認・更新・再取得を1接続のtransactionにまとめ、削除との競合も防ぐ。
+ * URL署名は接続を閉じてから行う。
  * name×user 一意違反は現行同様に未処理（pg 23505 → 500）。
  */
 export async function updateTag(
@@ -173,18 +184,39 @@ export async function updateTag(
   tagId: number,
   userId: string,
   fields: { name?: string; color?: string },
-): Promise<void> {
-  return withDb(env, async (db) => {
-    const set: Partial<{ name: string; color: string }> = {};
-    if (fields.name !== undefined) set.name = fields.name;
-    if (fields.color !== undefined) set.color = fields.color;
-    if (Object.keys(set).length === 0) return;
+): Promise<{ notFound: true } | { error: string } | { tag: TagDetail }> {
+  const result = await withDb(env, (db) => db.transaction(async (tx) => {
+    const owner = await tx
+      .select({ x: sql<number>`1` })
+      .from(tags)
+      .where(and(eq(tags.id, tagId), eq(tags.userId, userId)))
+      .for("update")
+      .limit(1);
+    if (owner.length === 0) return { notFound: true } as const;
 
-    await db
-      .update(tags)
-      .set(set)
-      .where(and(eq(tags.id, tagId), eq(tags.userId, userId)));
-  });
+    const set: Partial<{ name: string; color: string }> = {};
+    if (fields.name !== undefined) {
+      const name = normalizeTagName(fields.name);
+      if (name === null) return { error: EMPTY_NAME_MESSAGE } as const;
+      set.name = name;
+    }
+    if (fields.color !== undefined) {
+      if (!isValidTagColor(fields.color)) return { error: INVALID_COLOR_MESSAGE } as const;
+      set.color = fields.color;
+    }
+
+    if (Object.keys(set).length > 0) {
+      await tx
+        .update(tags)
+        .set(set)
+        .where(and(eq(tags.id, tagId), eq(tags.userId, userId)));
+    }
+    const data = await readTagDetail(tx, tagId, userId);
+    if (!data) throw new Error("Locked tag disappeared.");
+    return { data };
+  }));
+  if (result.data !== undefined) return { tag: await mapTagDetail(env, result.data) };
+  return result;
 }
 
 /**

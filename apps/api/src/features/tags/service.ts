@@ -5,7 +5,6 @@ import {
   listTagsPage,
   normalizeTagName,
   isValidTagColor,
-  tagExists,
   updateTag,
   EMPTY_NAME_MESSAGE,
   INVALID_COLOR_MESSAGE,
@@ -44,19 +43,7 @@ export async function updateUserTag(
   userId: string,
   fields: { name?: string; color?: string },
 ) {
-  if (!(await tagExists(env, tagId, userId))) return { notFound: true } as const;
-  const patch: { name?: string; color?: string } = {};
-  if (fields.name !== undefined) {
-    const n = normalizeTagName(fields.name);
-    if (n === null) return { error: EMPTY_NAME_MESSAGE } as const;
-    patch.name = n;
-  }
-  if (fields.color !== undefined) {
-    if (!isValidTagColor(fields.color)) return { error: INVALID_COLOR_MESSAGE } as const;
-    patch.color = fields.color;
-  }
-  await updateTag(env, tagId, userId, patch);
-  return { tag: await getTagDetail(env, tagId, userId) } as const;
+  return updateTag(env, tagId, userId, fields);
 }
 
 export async function removeTag(env: Bindings, tagId: number, userId: string) {

@@ -11,8 +11,9 @@ resource "aws_sqs_queue" "dlq" {
 }
 
 # ── Main worker queue ───────────────────────────────────────────────────
-# Keep visibility_timeout greater than or equal to the Worker Lambda timeout so
-# messages do not become visible again while Lambda is processing them.
+# Allow processing and throttling retries per the Lambda/SQS recommendation:
+# https://docs.aws.amazon.com/lambda/latest/dg/services-sqs-configure.html
+# visibility_timeout >= 6 * Lambda timeout (batching window is zero).
 # receive_wait_time=20s enables long polling to reduce empty polls.
 resource "aws_sqs_queue" "main" {
   name                       = local.names.worker

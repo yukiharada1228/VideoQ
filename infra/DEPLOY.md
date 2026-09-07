@@ -203,6 +203,13 @@ DLQ到達をSNS emailで通知します。apply後にAWSから届くsubscription
 ください。ログ保持期間は`lambda_log_retention_days`（既定30日）です。
 
 **arm64 cutover:** Lambda の `architectures = ["arm64"]` とイメージ arch は一致が必須です。
+
+SQS の `sqs_visibility_timeout_seconds` は Lambda のタイムアウトの6倍以上にします
+（既定900秒に対して5400秒）。`sqs_max_receive_count` は5回以上です。
+[AWS の推奨](https://docs.aws.amazon.com/lambda/latest/dg/services-sqs-configure.html)に合わせ、
+throttle 時の再試行猶予を確保します。失敗したメッセージの再配送まで最大90分待つため、
+滞留監視とDLQの確認も行ってください。既存の `terraform.tfvars` に960秒／3回を
+指定している環境では、値を更新してからplanします。Terraformの入力検証が旧設定を拒否します。
 `terraform apply` の前に、下の手順で **arm64 イメージを ECR に push** してください
 （amd64 のまま arch だけ変えると更新が失敗します）。
 

@@ -9,8 +9,13 @@ export type ExternalTaskKind =
   | "storage_cleanup"
   | "invitation_email";
 
-export type ClaimedExternalTask = {
+/** attempts is a monotonic fencing token: an older claimant cannot update a new lease. */
+export type ExternalTaskLease = {
   id: number;
+  attempt: number;
+};
+
+export type ClaimedExternalTask = ExternalTaskLease & {
   kind: ExternalTaskKind;
   payload: Record<string, unknown>;
 };
@@ -21,6 +26,38 @@ export type PersistedExternalTask = {
 };
 
 export const MAX_EXTERNAL_TASK_ATTEMPTS = 48;
+
+export class ExternalTaskLeaseLostError extends Error {
+  constructor() {
+    super("External task lease is no longer owned by this attempt.");
+    this.name = "ExternalTaskLeaseLostError";
+  }
+}
+
+export function externalTaskLeaseCondition(lease: ExternalTaskLease) {
+  return and(
+    eq(externalTasks.id, lease.id),
+    eq(externalTasks.attempts, lease.attempt),
+    sql`${externalTasks.lockedAt} > clock_timestamp() - INTERVAL '5 minutes'`,
+    sql`${externalTasks.completedAt} IS NULL`,
+    sql`${externalTasks.deadAt} IS NULL`,
+  );
+}
+
+/** Call inside the same transaction as the protected writes. */
+export async function lockExternalTaskLease(
+  db: Pick<Db, "select">,
+  lease: ExternalTaskLease,
+) {
+  const rows = await db
+    .select({ effectAppliedAt: externalTasks.effectAppliedAt })
+    .from(externalTasks)
+    .where(externalTaskLeaseCondition(lease))
+    .for("update")
+    .limit(1);
+  if (rows.length === 0) throw new ExternalTaskLeaseLostError();
+  return rows[0];
+}
 
 export type ExternalTaskHealth = {
   pending: number;
@@ -64,11 +101,12 @@ export async function createJobTask(
 
 export async function claimExternalTasks(
   env: Bindings,
-  params: { limit: number; taskId?: number },
+  params: { limit: number; taskId?: number; excludeTaskIds?: readonly number[] },
 ): Promise<ClaimedExternalTask[]> {
   return withDb(env, async (_db, client) => {
     const result = await client.query<{
       id: string;
+      attempts: number;
       kind: ExternalTaskKind;
       payload: Record<string, unknown>;
     }>(
@@ -78,6 +116,7 @@ export async function claimExternalTasks(
             WHERE completed_at IS NULL
               AND dead_at IS NULL
             AND available_at <= now()
+            AND NOT (id = ANY($3::bigint[]))
             AND (locked_at IS NULL OR locked_at < now() - INTERVAL '5 minutes')
             AND ($2::bigint IS NULL OR id = $2)
           ORDER BY available_at, id
@@ -90,11 +129,12 @@ export async function claimExternalTasks(
               updated_at = now()
          FROM candidates
         WHERE task.id = candidates.id
-      RETURNING task.id, task.kind, task.payload`,
-      [params.limit, params.taskId ?? null],
+      RETURNING task.id, task.attempts, task.kind, task.payload`,
+      [params.limit, params.taskId ?? null, params.excludeTaskIds ?? []],
     );
     return result.rows.map((row) => ({
       id: Number(row.id),
+      attempt: row.attempts,
       kind: row.kind,
       payload: row.payload,
     }));
@@ -103,10 +143,10 @@ export async function claimExternalTasks(
 
 export async function completeExternalTask(
   env: Bindings,
-  taskId: number,
+  lease: ExternalTaskLease,
 ): Promise<void> {
   await withDb(env, async (db) => {
-    await db
+    const rows = await db
       .update(externalTasks)
       .set({
         completedAt: sql`now()`,
@@ -114,28 +154,20 @@ export async function completeExternalTask(
         lastError: "",
         updatedAt: sql`now()`,
       })
-      .where(and(eq(externalTasks.id, taskId), sql`${externalTasks.completedAt} IS NULL`));
+      .where(externalTaskLeaseCondition(lease))
+      .returning({ id: externalTasks.id });
+    if (rows.length === 0) throw new ExternalTaskLeaseLostError();
   });
 }
 
 /** R2削除後の容量返却とタスク完了を、同じDBトランザクションで一度だけ行う。 */
 export async function completeStorageCleanupTask(
   env: Bindings,
-  params: { taskId: number; userId: string; bytes: number | null },
+  params: { lease: ExternalTaskLease; userId: string; bytes: number | null },
 ): Promise<void> {
   await withDb(env, async (db) =>
     db.transaction(async (tx) => {
-      const tasks = await tx
-        .select({
-          completedAt: externalTasks.completedAt,
-          effectAppliedAt: externalTasks.effectAppliedAt,
-        })
-        .from(externalTasks)
-        .where(eq(externalTasks.id, params.taskId))
-        .for("update")
-        .limit(1);
-      const task = tasks[0];
-      if (!task || task.completedAt !== null) return;
+      const task = await lockExternalTaskLease(tx, params.lease);
 
       if (task.effectAppliedAt === null && params.bytes !== null && params.bytes > 0) {
         const remaining = sql`GREATEST(0, ${users.usedStorageBytes} - ${params.bytes})`;
@@ -165,16 +197,16 @@ export async function completeStorageCleanupTask(
           lastError: "",
           updatedAt: sql`now()`,
         })
-        .where(eq(externalTasks.id, params.taskId));
+        .where(eq(externalTasks.id, params.lease.id));
     }),
   );
 }
 
 export async function failExternalTask(
   env: Bindings,
-  taskId: number,
+  lease: ExternalTaskLease,
   error: string,
-): Promise<{ dead: boolean }> {
+): Promise<{ dead: boolean; leaseLost: boolean }> {
   return withDb(env, async (_db, client) => {
     const result = await client.query<{ dead: boolean }>(
       `UPDATE external_tasks
@@ -187,11 +219,13 @@ export async function failExternalTask(
                   + LEAST(3600, 5 * (2 ^ LEAST(attempts, 10))) * INTERVAL '1 second'
               END,
               updated_at = now()
-        WHERE id = $1 AND completed_at IS NULL
+        WHERE id = $1 AND attempts = $4
+          AND locked_at > clock_timestamp() - INTERVAL '5 minutes'
+          AND completed_at IS NULL AND dead_at IS NULL
     RETURNING dead_at IS NOT NULL AS dead`,
-      [taskId, error.slice(0, 2000), MAX_EXTERNAL_TASK_ATTEMPTS],
+      [lease.id, error.slice(0, 2000), MAX_EXTERNAL_TASK_ATTEMPTS, lease.attempt],
     );
-    return { dead: result.rows[0]?.dead === true };
+    return { dead: result.rows[0]?.dead === true, leaseLost: result.rows.length === 0 };
   });
 }
 

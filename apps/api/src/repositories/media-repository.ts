@@ -15,66 +15,37 @@ export function isSafeMediaPath(path: string): boolean {
   return !parts.some((p) => p === ".." || p === "");
 }
 
-/** `videos.file` 完全一致で video_id を返す。 */
-export async function findVideoIdByFilePath(
+/** Resolve the file and its authorization in one query/connection. */
+export async function isMediaPathAccessible(
   env: Bindings,
   path: string,
-): Promise<number | null> {
+  opts: { userId?: string; shareCourseId?: number },
+): Promise<boolean> {
+  if (!isSafeMediaPath(path)) return false;
+  const permission = opts.shareCourseId != null
+    ? sql`EXISTS (
+        SELECT 1 FROM ${videoCourseMembers}
+        WHERE ${videoCourseMembers.videoId} = ${videos.id}
+          AND ${videoCourseMembers.courseId} = ${opts.shareCourseId}
+      )`
+    : opts.userId != null
+      ? or(
+          eq(videos.userId, opts.userId),
+          sql`EXISTS (
+            SELECT 1 FROM ${videoCourseMembers}
+            JOIN ${videoCourseMemberships}
+              ON ${videoCourseMemberships.courseId} = ${videoCourseMembers.courseId}
+            WHERE ${videoCourseMembers.videoId} = ${videos.id}
+              AND ${videoCourseMemberships.userId} = ${opts.userId}
+          )`,
+        )
+      : undefined;
+  if (!permission) return false;
   return withDb(env, async (db) => {
     const rows = await db
       .select({ id: videos.id })
       .from(videos)
-      .where(eq(videos.file, path))
-      .limit(1);
-    return rows[0]?.id ?? null;
-  });
-}
-
-export async function isVideoAccessibleToUser(
-  env: Bindings,
-  videoId: number,
-  userId: string,
-): Promise<boolean> {
-  return withDb(env, async (db) => {
-    const rows = await db
-      .select({ id: videos.id })
-      .from(videos)
-      .where(
-        and(
-          eq(videos.id, videoId),
-          or(
-            eq(videos.userId, userId),
-            sql`EXISTS (
-              SELECT 1
-                FROM ${videoCourseMembers}
-                JOIN ${videoCourseMemberships}
-                  ON ${videoCourseMemberships.courseId} = ${videoCourseMembers.courseId}
-               WHERE ${videoCourseMembers.videoId} = ${videos.id}
-                 AND ${videoCourseMemberships.userId} = ${userId}
-            )`,
-          ),
-        ),
-      )
-      .limit(1);
-    return rows.length > 0;
-  });
-}
-
-export async function isVideoInCourse(
-  env: Bindings,
-  videoId: number,
-  courseId: number,
-): Promise<boolean> {
-  return withDb(env, async (db) => {
-    const rows = await db
-      .select({ id: videoCourseMembers.id })
-      .from(videoCourseMembers)
-      .where(
-        and(
-          eq(videoCourseMembers.videoId, videoId),
-          eq(videoCourseMembers.courseId, courseId),
-        ),
-      )
+      .where(and(eq(videos.file, path), permission))
       .limit(1);
     return rows.length > 0;
   });

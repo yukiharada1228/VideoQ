@@ -9,7 +9,7 @@ from typing import Any
 
 from worker_python.db import db_transaction
 
-# Lambda is capped at 15 minutes; SQS visibility is configured slightly longer.
+# Lambda is capped at 15 minutes; SQS visibility is at least six times as long.
 JOB_LEASE_SECONDS = 15 * 60
 
 
