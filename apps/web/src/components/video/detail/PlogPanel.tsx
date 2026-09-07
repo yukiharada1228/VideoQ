@@ -1,4 +1,4 @@
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { PlogConcept, PlogEdge, PlogGraph } from '@videoq/trpc';
@@ -74,36 +74,36 @@ function listToLines(items: string[] | undefined): string {
 
 export function PlogPanel({ videoId, enabled = true }: PlogPanelProps) {
   const { t } = useTranslation();
-  const utils = trpc.useUtils();
-  const rebuild = trpc.plog.rebuild.useMutation();
-  const createConcept = trpc.plog.createConcept.useMutation();
-  const updateConcept = trpc.plog.updateConcept.useMutation();
-  const updateLearningObject = trpc.plog.updateLearningObject.useMutation();
-  const deleteConcept = trpc.plog.deleteConcept.useMutation();
-  const mergeConcepts = trpc.plog.mergeConcepts.useMutation();
-  const createEdge = trpc.plog.createEdge.useMutation();
-  const updateEdge = trpc.plog.updateEdge.useMutation();
-  const deleteEdge = trpc.plog.deleteEdge.useMutation();
+  const queryClient = useQueryClient();
+  const rebuild = useMutation(trpc.plog.rebuild.mutationOptions());
+  const createConcept = useMutation(trpc.plog.createConcept.mutationOptions());
+  const updateConcept = useMutation(trpc.plog.updateConcept.mutationOptions());
+  const updateLearningObject = useMutation(trpc.plog.updateLearningObject.mutationOptions());
+  const deleteConcept = useMutation(trpc.plog.deleteConcept.mutationOptions());
+  const mergeConcepts = useMutation(trpc.plog.mergeConcepts.mutationOptions());
+  const createEdge = useMutation(trpc.plog.createEdge.mutationOptions());
+  const updateEdge = useMutation(trpc.plog.updateEdge.mutationOptions());
+  const deleteEdge = useMutation(trpc.plog.deleteEdge.mutationOptions());
 
   const graphInput = { videoId };
-  const { data, isLoading, error, isFetching } = trpc.plog.graph.useQuery(graphInput, {
+  const { data, isLoading, error, isFetching } = useQuery(trpc.plog.graph.queryOptions(graphInput, {
     enabled: enabled && Number.isFinite(videoId),
     refetchInterval: (query) => {
       const status = query.state.data?.build_status;
       return status === 'pending' || status === 'running' ? 3000 : false;
     },
-  });
+  }));
 
   const invalidate = () => {
-    void utils.plog.graph.invalidate(graphInput);
+    void queryClient.invalidateQueries(trpc.plog.graph.queryFilter(graphInput));
   };
 
   const rebuildMutation = useMutation({
     mutationFn: () => rebuild.mutateAsync({ videoId }),
     onMutate: async () => {
-      await utils.plog.graph.cancel(graphInput);
-      const previous = utils.plog.graph.getData(graphInput);
-      utils.plog.graph.setData(graphInput, (old) => ({
+      await queryClient.cancelQueries(trpc.plog.graph.queryFilter(graphInput));
+      const previous = queryClient.getQueryData(trpc.plog.graph.queryKey(graphInput));
+      queryClient.setQueryData(trpc.plog.graph.queryKey(graphInput), (old) => ({
         video_id: videoId,
         build_status: 'pending',
         input_tokens: old?.input_tokens ?? 0,
@@ -117,11 +117,11 @@ export function PlogPanel({ videoId, enabled = true }: PlogPanelProps) {
     },
     onError: (_err, _vars, context) => {
       if (context?.previous) {
-        utils.plog.graph.setData(graphInput, context.previous);
+        queryClient.setQueryData(trpc.plog.graph.queryKey(graphInput), context.previous);
       }
     },
     onSuccess: (result) => {
-      utils.plog.graph.setData(graphInput, (old) => ({
+      queryClient.setQueryData(trpc.plog.graph.queryKey(graphInput), (old) => ({
         video_id: videoId,
         build_status: result.status === 'queued' ? 'pending' : result.status,
         input_tokens: old?.input_tokens ?? 0,

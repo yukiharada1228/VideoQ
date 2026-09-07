@@ -1,6 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { QueryClient } from '@tanstack/react-query';
-import { getQueryKey } from '@trpc/react-query';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { QueryClient, type QueryKey } from '@tanstack/react-query';
 import {
   invalidateAfterVideoDelete,
   invalidateAfterVideoUpdate,
@@ -8,53 +7,51 @@ import {
 } from '../cacheInvalidation';
 import { trpc } from '../trpc';
 
-function createMockQueryClient(): QueryClient {
-  return {
-    invalidateQueries: vi.fn().mockResolvedValue(undefined),
-    removeQueries: vi.fn(),
-  } as unknown as QueryClient;
-}
-
 describe('tRPC cache invalidation', () => {
   let queryClient: QueryClient;
+  const videoList = trpc.videos.list.queryKey({ limit: 24 });
+  const videoPages = trpc.videos.list.infiniteQueryKey({ limit: 24 });
+  const videoDetail = trpc.videos.get.queryKey({ id: 42 });
+  const otherVideo = trpc.videos.get.queryKey({ id: 7 });
+  const coursePages = trpc.courses.list.infiniteQueryKey({ limit: 24 });
+  const courseDetail = trpc.courses.get.queryKey({ id: 1 });
+  const tags = trpc.tags.list.queryKey();
+  const allKeys: QueryKey[] = [
+    videoList, videoPages, videoDetail, otherVideo, coursePages, courseDetail, tags,
+  ];
 
   beforeEach(() => {
-    queryClient = createMockQueryClient();
+    queryClient = new QueryClient();
+    // These tests exercise cache selection without fetching application data.
+    for (const key of allKeys) queryClient.setQueryData(key, { cached: true });
   });
 
-  it('invalidates the videos router after upload', async () => {
+  afterEach(() => queryClient.clear());
+
+  function expectInvalidated(keys: QueryKey[]) {
+    for (const key of allKeys) {
+      expect(queryClient.getQueryState(key)?.isInvalidated, JSON.stringify(key))
+        .toBe(keys.includes(key));
+    }
+  }
+
+  it('invalidates both regular and infinite video queries after upload', async () => {
     await invalidateAfterVideoUpload(queryClient);
-
-    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: getQueryKey(trpc.videos),
-    });
+    expectInvalidated([videoList, videoPages, videoDetail, otherVideo]);
   });
 
-  it('removes the detail and invalidates video and course data after deletion', async () => {
+  it('removes only the deleted detail and invalidates video and course queries', async () => {
     await invalidateAfterVideoDelete(queryClient, 42);
-
-    expect(queryClient.removeQueries).toHaveBeenCalledWith({
-      queryKey: getQueryKey(trpc.videos.get, { id: 42 }),
-    });
-    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: getQueryKey(trpc.videos),
-    });
-    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: getQueryKey(trpc.courses),
-    });
+    expect(queryClient.getQueryState(videoDetail)).toBeUndefined();
+    for (const key of [videoList, videoPages, otherVideo, coursePages, courseDetail]) {
+      expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
+    }
+    expect(queryClient.getQueryState(tags)?.isInvalidated).toBe(false);
   });
 
-  it('invalidates the detail, video router, and course router after update', async () => {
-    await invalidateAfterVideoUpdate(queryClient, 7);
-
-    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: getQueryKey(trpc.videos.get, { id: 7 }),
-    });
-    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: getQueryKey(trpc.videos),
-    });
-    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: getQueryKey(trpc.courses),
-    });
+  it('retains detail data and invalidates video and course queries after update', async () => {
+    await invalidateAfterVideoUpdate(queryClient, 42);
+    expect(queryClient.getQueryData(videoDetail)).toEqual({ cached: true });
+    expectInvalidated([videoList, videoPages, videoDetail, otherVideo, coursePages, courseDetail]);
   });
 });

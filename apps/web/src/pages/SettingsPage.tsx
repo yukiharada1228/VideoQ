@@ -75,7 +75,6 @@ export default function SettingsPage() {
   const locale = useLocale();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const trpcUtils = trpc.useUtils();
   const billingNotice = searchParams.get('billing');
 
   const [isCreateApiKeyDialogOpen, setIsCreateApiKeyDialogOpen] = useState(false);
@@ -153,7 +152,7 @@ export default function SettingsPage() {
     queryFn: async () => apiClient.getIntegrationApiKeys(),
   });
 
-  const searchApiKeyStatusQuery = trpc.account.searchApiKeyStatus.useQuery();
+  const searchApiKeyStatusQuery = useQuery(trpc.account.searchApiKeyStatus.queryOptions());
 
   const createApiKeyMutation = useMutation({
     mutationFn: async () => apiClient.createIntegrationApiKey({
@@ -224,7 +223,7 @@ export default function SettingsPage() {
         tone: 'success',
         text: t('settings.usernameChange.success'),
       });
-      await trpcUtils.account.me.invalidate();
+      await queryClient.invalidateQueries(trpc.account.me.pathFilter());
     },
     onError: (error) => {
       setUsernameChangeStatusMessage({
@@ -234,7 +233,7 @@ export default function SettingsPage() {
     },
   });
 
-  const saveSearchApiKeyMutation = trpc.account.saveSearchApiKey.useMutation({
+  const saveSearchApiKeyMutation = useMutation(trpc.account.saveSearchApiKey.mutationOptions({
     onSuccess: async () => {
       setSearchApiKey('');
       setSearchApiStatusMessage({
@@ -251,9 +250,9 @@ export default function SettingsPage() {
           : t('settings.searchApiKey.errorSaving'),
       });
     },
-  });
+  }));
 
-  const deleteSearchApiKeyMutation = trpc.account.deleteSearchApiKey.useMutation({
+  const deleteSearchApiKeyMutation = useMutation(trpc.account.deleteSearchApiKey.mutationOptions({
     onSuccess: async () => {
       setSearchApiStatusMessage({
         tone: 'success',
@@ -269,7 +268,7 @@ export default function SettingsPage() {
           : t('settings.searchApiKey.errorDeleting'),
       });
     },
-  });
+  }));
 
   const createApiKeyDialog = useDialog({
     open: isCreateApiKeyDialogOpen,
@@ -976,11 +975,11 @@ export default function SettingsPage() {
 
 function ManageBillingButton({ locale }: { locale: 'en' | 'ja' }) {
   const { t } = useTranslation();
-  const portal = trpc.billing.portal.useMutation({
+  const portal = useMutation(trpc.billing.portal.mutationOptions({
     onSuccess: (res) => {
       window.location.assign(res.url);
     },
-  });
+  }));
   return (
     <Button type="button" disabled={portal.isPending} onClick={() => portal.mutate({ locale })}>
       {t('settings.billing.manage')}

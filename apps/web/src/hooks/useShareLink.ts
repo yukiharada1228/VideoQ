@@ -1,3 +1,4 @@
+import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Course as VideoCourse } from '@videoq/trpc';
@@ -18,14 +19,14 @@ interface UseShareLinkReturn {
 
 export function useShareLink(course: VideoCourse | null): UseShareLinkReturn {
   const { t, i18n } = useTranslation();
-  const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
   const requestConfirmation = useConfirm();
   const toast = useToast();
   const [shareLink, setShareLink] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
 
-  const createShareLinkMutation = trpc.courses.createShare.useMutation();
-  const deleteShareLinkMutation = trpc.courses.deleteShare.useMutation();
+  const createShareLinkMutation = useMutation(trpc.courses.createShare.mutationOptions());
+  const deleteShareLinkMutation = useMutation(trpc.courses.deleteShare.mutationOptions());
 
   // Sync share link URL from course's share_slug
   useEffect(() => {
@@ -43,17 +44,16 @@ export function useShareLink(course: VideoCourse | null): UseShareLinkReturn {
     if (!course) return;
     try {
       const result = await createShareLinkMutation.mutateAsync({ id: course.id, shareSlug });
-      utils.courses.get.setData({ id: course.id }, (prev) =>
-        prev ? { ...prev, share_slug: result.share_slug } : prev
-      );
-      await utils.courses.list.invalidate();
+      queryClient.setQueryData(trpc.courses.get.queryKey({ id: course.id }), (prev) =>
+        prev ? { ...prev, share_slug: result.share_slug } : prev);
+      await queryClient.invalidateQueries(trpc.courses.list.pathFilter());
       const locale = i18n.language as Locale;
       const shareUrl = `${window.location.origin}${addLocalePrefix(`/share/${result.share_slug}`, locale)}`;
       setShareLink(shareUrl);
     } catch (err) {
       handleAsyncError(err, t('videos.courseDetail.generateShareError'), () => { });
     }
-  }, [course, createShareLinkMutation, utils.courses.get, utils.courses.list, i18n.language, t]);
+  }, [course, createShareLinkMutation, queryClient, i18n.language, t]);
 
   const deleteShareLink = useCallback(async () => {
     if (!course) return;
@@ -66,15 +66,14 @@ export function useShareLink(course: VideoCourse | null): UseShareLinkReturn {
     if (!confirmed) return;
     try {
       await deleteShareLinkMutation.mutateAsync({ id: course.id });
-      utils.courses.get.setData({ id: course.id }, (prev) =>
-        prev ? { ...prev, share_slug: null } : prev
-      );
-      await utils.courses.list.invalidate();
+      queryClient.setQueryData(trpc.courses.get.queryKey({ id: course.id }), (prev) =>
+        prev ? { ...prev, share_slug: null } : prev);
+      await queryClient.invalidateQueries(trpc.courses.list.pathFilter());
       setShareLink(null);
     } catch (err) {
       handleAsyncError(err, t('videos.courseDetail.disableShareError'), () => { });
     }
-  }, [requestConfirmation, course, deleteShareLinkMutation, utils.courses.get, utils.courses.list, t]);
+  }, [requestConfirmation, course, deleteShareLinkMutation, queryClient, t]);
 
   const copyShareLink = useCallback(async () => {
     if (!shareLink) return;

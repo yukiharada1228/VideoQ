@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiClient, ApiError } from '@/lib/api';
+import { apiClient } from '@/lib/api';
+import { getApiError } from '@/lib/api-error';
 import { invalidateAfterVideoUpload } from '@/lib/cacheInvalidation';
 import { useAuth } from '@/hooks/useAuth';
 import { trpc } from '@/lib/trpc';
@@ -60,8 +61,8 @@ export function useVideoUpload(): UseVideoUploadReturn {
   const [warningParams, setWarningParams] = useState<Record<string, unknown>>({});
   const [progress, setProgress] = useState(0);
   const queryClient = useQueryClient();
-  const createYoutube = trpc.videos.createYoutube.useMutation();
-  const addTags = trpc.memberships.addTags.useMutation();
+  const createYoutube = useMutation(trpc.videos.createYoutube.mutationOptions());
+  const addTags = useMutation(trpc.memberships.addTags.mutationOptions());
 
   const uploadMutation = useMutation({
     mutationFn: async ({ command, tagIds }: RunUploadMutationVariables) => {
@@ -89,13 +90,14 @@ export function useVideoUpload(): UseVideoUploadReturn {
       await invalidateAfterVideoUpload(queryClient);
     },
     onError: (err) => {
+      const apiError = getApiError(err);
       if (err instanceof VideoUploadValidationError) {
         setError(err.translationKey);
         setErrorParams(err.params);
-      } else if (err instanceof ApiError && err.code === 'FILE_TOO_LARGE') {
+      } else if (apiError?.code === 'FILE_TOO_LARGE') {
         setError('videos.upload.validation.fileTooLarge');
-        setErrorParams(err.params ?? {});
-      } else if (err instanceof ApiError && err.code === 'STORAGE_LIMIT_EXCEEDED') {
+        setErrorParams(apiError.params ?? {});
+      } else if (apiError?.code === 'STORAGE_LIMIT_EXCEEDED') {
         setError('videos.upload.validation.storageLimitExceeded');
         setErrorParams({});
       } else {

@@ -1,3 +1,4 @@
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -30,12 +31,12 @@ export default function PricingPage() {
   const [interval, setInterval] = useState<Interval>('month');
   const session = useAuthSession();
   const hasSession = Boolean(session.data?.user);
-  const { data: user } = trpc.account.me.useQuery(undefined, {
+  const { data: user } = useQuery(trpc.account.me.queryOptions(undefined, {
     enabled: hasSession && !session.isPending,
     retry: false,
     staleTime: 60_000,
-  });
-  const { data: plans, isLoading } = trpc.billing.plans.useQuery();
+  }));
+  const { data: plans, isLoading } = useQuery(trpc.billing.plans.queryOptions());
 
   const canceled = searchParams.get('billing') === 'cancel';
   const currentPlan = user?.plan_code ?? 'free';
@@ -47,17 +48,17 @@ export default function PricingPage() {
     return [free, ...paid].filter((p): p is BillingPlan => Boolean(p));
   }, [plans, interval]);
 
-  const checkout = trpc.billing.checkout.useMutation({
+  const checkout = useMutation(trpc.billing.checkout.mutationOptions({
     onSuccess: (res) => {
       window.location.assign(res.url);
     },
-  });
+  }));
 
-  const portal = trpc.billing.portal.useMutation({
+  const portal = useMutation(trpc.billing.portal.mutationOptions({
     onSuccess: (res) => {
       window.location.assign(res.url);
     },
-  });
+  }));
 
   return (
     <AppPageShell activePage="pricing">

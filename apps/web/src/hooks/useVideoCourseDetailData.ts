@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Course as VideoCourse } from '@videoq/trpc';
 import { trpc } from '@/lib/trpc';
 import { createVideoIdSet } from '@/lib/utils/videoConversion';
@@ -12,9 +12,9 @@ interface UseVideoCourseDetailQueryResult {
 }
 
 export function useVideoCourseDetailQuery(courseId: number | null): UseVideoCourseDetailQueryResult {
-  const courseQuery = trpc.courses.get.useQuery({ id: courseId! }, {
+  const courseQuery = useQuery(trpc.courses.get.queryOptions({ id: courseId! }, {
     enabled: !!courseId,
-  });
+  }));
 
   return {
     course: courseQuery.data ?? null,
@@ -52,7 +52,7 @@ export function useAddableVideosQuery({
     ? ordering as 'uploaded_at_desc' | 'uploaded_at_asc' | 'title_asc' | 'title_desc'
     : undefined;
 
-  return trpc.videos.list.useQuery({
+  return useQuery(trpc.videos.list.queryOptions({
     q: q || undefined,
     status: status || undefined,
     ordering: normalizedOrdering,
@@ -65,7 +65,7 @@ export function useAddableVideosQuery({
       const currentVideoIdSet = createVideoIdSet(course.videos.map((v) => v.id));
       return response.data.filter((v) => !currentVideoIdSet.has(v.id));
     },
-  });
+  }));
 }
 
 interface UseVideoCourseDetailMutationsParams {
@@ -75,8 +75,8 @@ interface UseVideoCourseDetailMutationsParams {
 }
 
 export function useAddVideosToCourseMutation(courseId: number | null, onSuccess?: () => void | Promise<void>) {
-  const utils = trpc.useUtils();
-  const addVideos = trpc.memberships.addVideos.useMutation();
+  const queryClient = useQueryClient();
+  const addVideos = useMutation(trpc.memberships.addVideos.mutationOptions());
 
   return useMutation({
     mutationFn: async (videoIds: number[]) => {
@@ -87,7 +87,7 @@ export function useAddVideosToCourseMutation(courseId: number | null, onSuccess?
     },
     onSuccess: async () => {
       if (courseId) {
-        await utils.courses.get.invalidate({ id: courseId });
+        await queryClient.invalidateQueries(trpc.courses.get.queryFilter({ id: courseId }));
       }
       await onSuccess?.();
     },
@@ -99,28 +99,28 @@ export function useVideoCourseDetailMutations({
   onDeleteSuccess,
   onUpdateSuccess,
 }: UseVideoCourseDetailMutationsParams) {
-  const utils = trpc.useUtils();
-  const removeVideo = trpc.memberships.removeVideo.useMutation();
-  const reorderVideos = trpc.memberships.reorderVideos.useMutation();
-  const deleteCourse = trpc.courses.delete.useMutation();
-  const updateCourse = trpc.courses.update.useMutation();
+  const queryClient = useQueryClient();
+  const removeVideo = useMutation(trpc.memberships.removeVideo.mutationOptions());
+  const reorderVideos = useMutation(trpc.memberships.reorderVideos.mutationOptions());
+  const deleteCourse = useMutation(trpc.courses.delete.mutationOptions());
+  const updateCourse = useMutation(trpc.courses.update.mutationOptions());
 
   const syncCourseDetail = useCallback(async () => {
     if (!courseId) {
       return;
     }
     await Promise.all([
-      utils.courses.get.invalidate({ id: courseId }),
-      utils.courses.list.invalidate(),
+      queryClient.invalidateQueries(trpc.courses.get.queryFilter({ id: courseId })),
+      queryClient.invalidateQueries(trpc.courses.list.pathFilter()),
     ]);
-  }, [courseId, utils.courses.get, utils.courses.list]);
+  }, [courseId, queryClient]);
 
   const setCourseDetailCache = useCallback((nextGroup: VideoCourse) => {
     if (!courseId) {
       return;
     }
-    utils.courses.get.setData({ id: courseId }, nextGroup);
-  }, [courseId, utils.courses.get]);
+    queryClient.setQueryData(trpc.courses.get.queryKey({ id: courseId }), nextGroup);
+  }, [courseId, queryClient]);
 
   const addVideosMutation = useAddVideosToCourseMutation(courseId);
 
@@ -134,7 +134,7 @@ export function useVideoCourseDetailMutations({
     },
     onSuccess: async () => {
       if (courseId) {
-        await utils.courses.get.invalidate({ id: courseId });
+        await queryClient.invalidateQueries(trpc.courses.get.queryFilter({ id: courseId }));
       }
     },
   });
@@ -156,7 +156,7 @@ export function useVideoCourseDetailMutations({
       await deleteCourse.mutateAsync({ id: courseId });
     },
     onSuccess: async () => {
-      await utils.courses.list.invalidate();
+      await queryClient.invalidateQueries(trpc.courses.list.pathFilter());
       onDeleteSuccess();
     },
   });

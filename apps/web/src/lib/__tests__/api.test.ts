@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TRPC_MAX_BATCH_SIZE } from '@videoq/trpc/schema';
+import { TRPCClientError } from '@trpc/client';
+import { getApiError } from '../api-error';
 
 vi.unmock('@/lib/api');
 
@@ -69,7 +71,7 @@ vi.mock('@/lib/authSession', () => ({
   fetchAuthSession: fetchAuthSessionMock,
 }));
 
-import { ApiError, apiPath, createApiClient, type ApiClient } from '../api';
+import { apiPath, createApiClient, type ApiClient } from '../api';
 import { createAppTrpcClient, TRPC_UNAUTHORIZED_EVENT } from '../trpc';
 
 const BASE_URL = 'http://localhost:8000/api';
@@ -320,7 +322,9 @@ describe('native tRPC client transport', () => {
     }));
     const client = createAppTrpcClient({ baseUrl: BASE_URL, fetchFn: fetchMock });
 
-    await expect(client.account.me.query()).rejects.toEqual(expect.objectContaining({
+    const error = await client.account.me.query().catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(TRPCClientError);
+    expect(getApiError(error)).toEqual(expect.objectContaining({
       name: 'ApiError',
       code: 'VALIDATION_ERROR',
       message: 'name is required',
@@ -337,7 +341,7 @@ describe('native tRPC client transport', () => {
     }));
     const client = createAppTrpcClient({ baseUrl: BASE_URL, fetchFn: fetchMock, onUnauthorized });
 
-    await expect(client.account.me.query()).rejects.toBeInstanceOf(ApiError);
+    await expect(client.account.me.query()).rejects.toBeInstanceOf(TRPCClientError);
     expect(onUnauthorized).toHaveBeenCalledTimes(1);
   });
 
@@ -351,7 +355,7 @@ describe('native tRPC client transport', () => {
     }));
     const client = createAppTrpcClient({ baseUrl: BASE_URL, fetchFn: fetchMock });
 
-    await expect(client.account.me.query()).rejects.toBeInstanceOf(ApiError);
+    await expect(client.account.me.query()).rejects.toBeInstanceOf(TRPCClientError);
     expect(eventHandler).toHaveBeenCalledTimes(1);
     window.removeEventListener(TRPC_UNAUTHORIZED_EVENT, eventHandler);
   });

@@ -1,3 +1,4 @@
+import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -23,7 +24,7 @@ export default function VideoDetailPage() {
   const [manualYoutubeStartSeconds, setManualYoutubeStartSeconds] = useState<number | null>(null);
   const { t } = useTranslation();
   const requestConfirmation = useConfirm();
-  const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
 
   const [transcriptSearch, setTranscriptSearch] = useState('');
   const [isTranscriptEditing, setIsTranscriptEditing] = useState(false);
@@ -113,12 +114,12 @@ export default function VideoDetailPage() {
     updateMutation.reset();
   }, [cancelEditing, updateMutation]);
 
-  const transcriptUpdateMutation = trpc.videos.update.useMutation({
+  const transcriptUpdateMutation = useMutation(trpc.videos.update.mutationOptions({
     onSuccess: async () => {
       if (videoId) {
         await Promise.all([
-          utils.videos.get.invalidate({ id: videoId }),
-          utils.courses.invalidate(),
+          queryClient.invalidateQueries(trpc.videos.get.queryFilter({ id: videoId })),
+          queryClient.invalidateQueries(trpc.courses.pathFilter()),
         ]);
       }
       setIsTranscriptEditing(false);
@@ -128,7 +129,7 @@ export default function VideoDetailPage() {
     onError: (err: unknown) => {
       setTranscriptSaveError(err instanceof Error ? err.message : String(err));
     },
-  });
+  }));
 
   const startTranscriptEditing = () => {
     setEditedTranscript(video?.transcript ?? '');

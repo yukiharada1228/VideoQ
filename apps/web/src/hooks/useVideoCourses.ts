@@ -1,3 +1,4 @@
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState, type RefCallback } from 'react';
 import type { CourseListItem } from '@videoq/trpc';
 import { useAuth } from '@/hooks/useAuth';
@@ -25,7 +26,7 @@ export function useVideoCourses(trigger: boolean = true): UseVideoCoursesReturn 
   const { user } = useAuth();
   const userId = user?.id ?? null;
 
-  const coursesQuery = trpc.courses.list.useInfiniteQuery(
+  const coursesQuery = useInfiniteQuery(trpc.courses.list.infiniteQueryOptions(
     { limit: PAGE_SIZE },
     {
       enabled: trigger && userId !== null,
@@ -36,7 +37,7 @@ export function useVideoCourses(trigger: boolean = true): UseVideoCoursesReturn 
         return loaded;
       },
     },
-  );
+  ));
 
   const courses = useMemo(
     () => coursesQuery.data?.pages.flatMap((page) => page.data) ?? [],

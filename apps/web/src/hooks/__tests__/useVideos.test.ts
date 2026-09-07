@@ -151,7 +151,7 @@ describe('useVideos', () => {
     })
   })
 
-  it('should omit the cursor on the first tRPC page', async () => {
+  it('should start the first tRPC page at cursor zero', async () => {
     listVideos.mockResolvedValue(mockPaginatedResponse([]))
 
     renderHook(() => useVideos())
@@ -160,7 +160,7 @@ describe('useVideos', () => {
       expect(listVideos).toHaveBeenCalledWith(
         expect.objectContaining({ limit: 24 }),
       )
-      expect(listVideos.mock.calls[0]?.[0]).not.toHaveProperty('cursor')
+      expect(listVideos.mock.calls[0]?.[0]).toHaveProperty('cursor', 0)
     })
   })
 
@@ -196,7 +196,7 @@ describe('useVideos', () => {
       expect(listVideos).toHaveBeenCalledWith(
         expect.objectContaining({ limit: 24 }),
       )
-      expect(listVideos.mock.calls[0]?.[0]).not.toHaveProperty('cursor')
+      expect(listVideos.mock.calls[0]?.[0]).toHaveProperty('cursor', 0)
       expect(listVideos).toHaveBeenCalledWith(
         expect.objectContaining({ limit: 24, cursor: 24 }),
       )

@@ -1,3 +1,4 @@
+import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { useCallback, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -24,8 +25,8 @@ export default function VideoCourseDetailPage() {
   const courseId = params?.id ? Number.parseInt(params.id, 10) : null;
   const { t } = useTranslation();
   const requestConfirmation = useConfirm();
-  const utils = trpc.useUtils();
-  const leaveCourseMutation = trpc.courseMemberships.leave.useMutation();
+  const queryClient = useQueryClient();
+  const leaveCourseMutation = useMutation(trpc.courseMemberships.leave.mutationOptions());
 
   useAuth();
 
@@ -172,7 +173,7 @@ export default function VideoCourseDetailPage() {
     setDeleteError(null);
     try {
       await leaveCourseMutation.mutateAsync({ courseId });
-      await utils.courses.list.invalidate();
+      await queryClient.invalidateQueries(trpc.courses.list.pathFilter());
       navigate('/videos/courses');
     } catch (err) {
       handleAsyncError(err, t('videos.courseDetail.leaveError'), setDeleteError);

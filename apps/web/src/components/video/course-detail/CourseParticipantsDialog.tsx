@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import type { CourseInviteRecipientResult } from '@videoq/trpc';
 import { trpc } from '@/lib/trpc';
@@ -92,18 +92,19 @@ export function CourseParticipantsDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const { t } = useTranslation();
-  const utils = trpc.useUtils();
-  const invite = trpc.courseMemberships.invite.useMutation();
-  const resend = trpc.courseMemberships.resend.useMutation();
-  const revoke = trpc.courseMemberships.revoke.useMutation();
-  const removeMember = trpc.courseMemberships.removeMember.useMutation();
+  const queryClient = useQueryClient();
+  const invite = useMutation(trpc.courseMemberships.invite.mutationOptions());
+  const resend = useMutation(trpc.courseMemberships.resend.mutationOptions());
+  const revoke = useMutation(trpc.courseMemberships.revoke.mutationOptions());
+  const removeMember = useMutation(trpc.courseMemberships.removeMember.mutationOptions());
   const [emailInput, setEmailInput] = useState('');
   const [inviteResults, setInviteResults] = useState<CourseInviteRecipientResult[]>([]);
   // メール送信はサーバー側のキューで進むので、送信直後だけ配送状態を追う。
   // 恒久的なポーリングにしないよう、追跡する期間を明示的に区切る。
   const [trackDeliveryUntil, setTrackDeliveryUntil] = useState(0);
 
-  const participantsQuery = trpc.courseMemberships.participants.useQuery({ courseId }, {
+  const participantsQuery = useQuery({
+    ...trpc.courseMemberships.participants.queryOptions({ courseId }),
     enabled: isOpen,
     refetchInterval: (query) => {
       if (Date.now() >= trackDeliveryUntil) return false;
@@ -113,7 +114,7 @@ export function CourseParticipantsDialog({
       return queued ? DELIVERY_POLL_INTERVAL_MS : false;
     },
   });
-  const refresh = () => utils.courseMemberships.participants.invalidate({ courseId });
+  const refresh = () => queryClient.invalidateQueries(trpc.courseMemberships.participants.queryFilter({ courseId }));
   const inviteMutation = useMutation({
     mutationFn: (emails: string[]) => invite.mutateAsync({ courseId, emails }),
     onSuccess: async ({ results }) => {

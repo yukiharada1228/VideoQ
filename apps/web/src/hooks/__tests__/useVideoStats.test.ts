@@ -1,19 +1,5 @@
-import { renderHook } from '@testing-library/react'
+import { renderHook, waitFor } from '@testing-library/react'
 import type { VideoStatusCounts } from '@videoq/trpc'
-
-const trpcMock = vi.hoisted(() => ({
-  useStatusCountsQuery: vi.fn(),
-}))
-
-vi.mock('@/lib/trpc', () => ({
-  trpc: {
-    videos: {
-      statusCounts: {
-        useQuery: trpcMock.useStatusCountsQuery,
-      },
-    },
-  },
-}))
 
 import { useVideoStats, useVideoStatusCounts } from '../useVideoStats'
 
@@ -83,7 +69,7 @@ describe('useVideoStats', () => {
 })
 
 describe('useVideoStatusCounts', () => {
-  it('reads server-side status totals through tRPC', () => {
+  it('reads server-side status totals through tRPC', async () => {
     const stats: VideoStatusCounts = {
       total: 8,
       completed: 3,
@@ -93,18 +79,11 @@ describe('useVideoStatusCounts', () => {
       error: 1,
       uploading: 1,
     }
-    trpcMock.useStatusCountsQuery.mockReturnValue({
-      data: stats,
-      isLoading: false,
-      error: null,
-    })
-
+    const getCounts = vi.fn(() => stats)
+    globalThis.__setTrpcHandler('videos.statusCounts', getCounts)
     const { result } = renderHook(() => useVideoStatusCounts(true))
-
-    expect(trpcMock.useStatusCountsQuery).toHaveBeenCalledWith(undefined, {
-      enabled: true,
-      staleTime: 30_000,
-    })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(getCounts).toHaveBeenCalledTimes(1)
     expect(result.current).toEqual({
       stats,
       isLoading: false,

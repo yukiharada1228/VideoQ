@@ -25,6 +25,8 @@ import {
 } from "@better-auth/oauth-provider";
 import { MCP_OAUTH_SCOPES } from "./lib/mcp-auth";
 import { limitChatTrpcRequestBody } from "./features/chat/body-limit";
+import { loggablePath } from "./shared/log-path";
+import { summarizeAuthApiError } from "./lib/auth-error-log";
 
 /**
  * Hono アプリの組み立て。認証は Better Auth (`/api/auth/*`)。
@@ -94,6 +96,21 @@ export function createApp() {
       router: appRouter,
       maxBatchSize: TRPC_MAX_BATCH_SIZE,
       createContext: () => createTrpcContext(c),
+      onError({ error, path, type }) {
+        if (error.code !== "INTERNAL_SERVER_ERROR") return;
+        const cause = error.cause ?? error;
+        console.error(JSON.stringify({
+          level: "error",
+          requestId: c.var.requestId,
+          path: loggablePath(c.req.url),
+          procedure: path,
+          type,
+          code: error.code,
+          error: summarizeAuthApiError(cause),
+          // Error messages can contain SQL parameters, emails, or tokens.
+          stack: cause.stack?.split("\n").filter((line) => /^\s+at /.test(line)).join("\n"),
+        }));
+      },
     })(c, next),
   );
 

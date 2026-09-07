@@ -1,3 +1,4 @@
+import { useQueryClient, useQuery, useMutation } from '@tanstack/react-query';
 import { useCallback, useEffect } from 'react';
 import type { TagPage } from '@videoq/trpc';
 import { trpc } from '@/lib/trpc';
@@ -16,15 +17,15 @@ function emptyTagPage(): TagPage {
 }
 
 export function useTags() {
-  const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
 
-  const tagsQuery = trpc.tags.list.useQuery(TAG_LIST_INPUT);
+  const tagsQuery = useQuery(trpc.tags.list.queryOptions(TAG_LIST_INPUT));
 
-  const createTagMutation = trpc.tags.create.useMutation();
+  const createTagMutation = useMutation(trpc.tags.create.mutationOptions());
 
-  const updateTagMutation = trpc.tags.update.useMutation();
+  const updateTagMutation = useMutation(trpc.tags.update.mutationOptions());
 
-  const deleteTagMutation = trpc.tags.delete.useMutation();
+  const deleteTagMutation = useMutation(trpc.tags.delete.mutationOptions());
 
   const createTag = useCallback(
     async (name: string, color?: string) => {
@@ -33,12 +34,12 @@ export function useTags() {
         throw new Error(`Invalid tag color: ${selectedColor}`);
       }
 
-      await utils.tags.list.cancel(TAG_LIST_INPUT);
+      await queryClient.cancelQueries(trpc.tags.list.queryFilter(TAG_LIST_INPUT));
       const newTag = await createTagMutation.mutateAsync({
         name,
         color: selectedColor,
       });
-      utils.tags.list.setData(TAG_LIST_INPUT, (previous) => {
+      queryClient.setQueryData(trpc.tags.list.queryKey(TAG_LIST_INPUT), (previous) => {
         const page = previous ?? emptyTagPage();
         return {
           data: [...page.data, newTag],
@@ -47,7 +48,7 @@ export function useTags() {
       });
       return newTag;
     },
-    [createTagMutation, utils.tags.list]
+    [createTagMutation, queryClient]
   );
 
   const updateTag = useCallback(
@@ -56,9 +57,9 @@ export function useTags() {
         throw new Error(`Invalid tag color: ${color}`);
       }
 
-      await utils.tags.list.cancel(TAG_LIST_INPUT);
+      await queryClient.cancelQueries(trpc.tags.list.queryFilter(TAG_LIST_INPUT));
       const updatedTag = await updateTagMutation.mutateAsync({ id, name, color });
-      utils.tags.list.setData(TAG_LIST_INPUT, (previous) => {
+      queryClient.setQueryData(trpc.tags.list.queryKey(TAG_LIST_INPUT), (previous) => {
         const page = previous ?? emptyTagPage();
         return {
           ...page,
@@ -69,14 +70,14 @@ export function useTags() {
       });
       return updatedTag;
     },
-    [updateTagMutation, utils.tags.list]
+    [updateTagMutation, queryClient]
   );
 
   const deleteTag = useCallback(
     async (id: number) => {
-      await utils.tags.list.cancel(TAG_LIST_INPUT);
+      await queryClient.cancelQueries(trpc.tags.list.queryFilter(TAG_LIST_INPUT));
       await deleteTagMutation.mutateAsync({ id });
-      utils.tags.list.setData(TAG_LIST_INPUT, (previous) => {
+      queryClient.setQueryData(trpc.tags.list.queryKey(TAG_LIST_INPUT), (previous) => {
         const page = previous ?? emptyTagPage();
         const data = page.data.filter((tag) => tag.id !== id);
         return {
@@ -88,7 +89,7 @@ export function useTags() {
         };
       });
     },
-    [deleteTagMutation, utils.tags.list]
+    [deleteTagMutation, queryClient]
   );
 
   useEffect(() => {

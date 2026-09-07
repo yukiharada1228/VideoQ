@@ -1,4 +1,7 @@
-/** Application-level error shared by raw HTTP and tRPC clients. */
+import { isTRPCClientError } from '@trpc/client';
+import type { AppRouter } from '@videoq/trpc';
+
+/** Application-level error for raw HTTP and local validation. */
 export class ApiError extends Error {
   code: string;
   params?: Record<string, unknown>;
@@ -11,4 +14,16 @@ export class ApiError extends Error {
     this.params = params;
     this.details = details;
   }
+}
+
+/** Read application errors consistently without changing tRPC's native error type. */
+export function getApiError(error: unknown): ApiError | undefined {
+  if (error instanceof ApiError) return error;
+  if (!isTRPCClientError<AppRouter>(error)) return undefined;
+  return new ApiError(
+    error.message,
+    error.data?.applicationCode ?? error.data?.code ?? 'UNKNOWN',
+    undefined,
+    error.data?.details,
+  );
 }

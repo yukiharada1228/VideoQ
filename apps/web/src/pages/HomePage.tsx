@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { Link, useI18nNavigate, useLocale } from '@/lib/i18n';
 import type { User } from '@/lib/api';
@@ -31,11 +32,11 @@ export default function HomePage() {
 
   const session = useAuthSession();
   const hasSession = Boolean(session.data?.user);
-  const { data: user, isLoading: meLoading } = trpc.account.me.useQuery(undefined, {
+  const { data: user, isLoading: meLoading } = useQuery(trpc.account.me.queryOptions(undefined, {
     enabled: hasSession && !session.isPending,
     retry: false,
     staleTime: 60_000,
-  });
+  }));
   const isLoading = session.isPending || (hasSession && meLoading);
   const currentUser = hasSession ? user ?? null : null;
   const usageSource: Partial<User> = currentUser ?? {};

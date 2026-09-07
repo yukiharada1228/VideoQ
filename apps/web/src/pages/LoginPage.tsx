@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Link, useI18nNavigate } from '@/lib/i18n';
@@ -29,7 +30,7 @@ function getSafeNextPath(next: string | null): string | null {
 
 export default function LoginPage() {
   const navigate = useI18nNavigate();
-  const trpcUtils = trpc.useUtils();
+  const queryClient = useQueryClient();
   const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const nextPath = getSafeNextPath(searchParams.get('next'));
@@ -44,7 +45,7 @@ export default function LoginPage() {
       // Refresh BA session atom, then load app profile into the shared cache.
       const { authClient } = await import('@/lib/auth-client');
       await authClient.getSession();
-      await trpcUtils.account.me.fetch();
+      await queryClient.fetchQuery(trpc.account.me.queryOptions());
     },
     initialData: { username: '', password: '' },
     onSuccessRedirect: () => {

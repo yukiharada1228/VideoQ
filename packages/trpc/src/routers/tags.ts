@@ -1,32 +1,23 @@
-import { z } from "zod";
 import { protectedProcedure, t } from "../init";
-
-const id = z.number().int().positive();
+import { tagsInputSchemas } from "../inputs/tags";
 
 export const tagsRouter = t.router({
   list: protectedProcedure
-    .input(z.object({
-      limit: z.number().int().positive().max(100).default(100),
-      offset: z.number().int().nonnegative().default(0),
-    }).default({ limit: 100, offset: 0 }))
+    .input(tagsInputSchemas["tags.list"])
     .query(({ ctx, input }) => ctx.call("tags.list", input)),
-  get: protectedProcedure.input(z.object({ id })).query(({ ctx, input }) =>
+  get: protectedProcedure.input(tagsInputSchemas["tags.get"]).query(({ ctx, input }) =>
     ctx.call("tags.get", input),
   ),
   create: protectedProcedure
-    .input(z.object({ name: z.string().min(1).max(50), color: z.string().min(1).default("gray") }))
+    .input(tagsInputSchemas["tags.create"])
     .mutation(({ ctx, input }) => ctx.call("tags.create", input)),
   update: protectedProcedure
-    .input(z.object({
-      id,
-      name: z.string().min(1).max(50).optional(),
-      color: z.string().min(1).optional(),
-    }))
+    .input(tagsInputSchemas["tags.update"])
     .mutation(({ ctx, input }) => ctx.call("tags.update", input)),
   replace: protectedProcedure
-    .input(z.object({ id, name: z.string().min(1).max(50), color: z.string().min(1) }))
+    .input(tagsInputSchemas["tags.replace"])
     .mutation(({ ctx, input }) => ctx.call("tags.replace", input)),
-  delete: protectedProcedure.input(z.object({ id })).mutation(({ ctx, input }) =>
+  delete: protectedProcedure.input(tagsInputSchemas["tags.delete"]).mutation(({ ctx, input }) =>
     ctx.call("tags.delete", input),
   ),
 });

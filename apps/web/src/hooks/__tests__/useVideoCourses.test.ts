@@ -1,36 +1,9 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
-import { useInfiniteQuery } from '@tanstack/react-query'
 import { useVideoCourses } from '../useVideoCourses'
 import { useAuth } from '@/hooks/useAuth'
 
 const trpcApi = vi.hoisted(() => ({
   listCourses: vi.fn(),
-}))
-
-vi.mock('@/lib/trpc', () => ({
-  trpc: {
-    courses: {
-      list: {
-        useInfiniteQuery: (
-          input: { limit: number },
-          options: {
-            enabled: boolean
-            initialCursor: number
-            getNextPageParam: (lastPage: any, allPages: any[]) => number | undefined
-          },
-        ) => useInfiniteQuery({
-          queryKey: ['trpc', 'courses', 'list', input],
-          enabled: options.enabled,
-          initialPageParam: options.initialCursor,
-          queryFn: ({ pageParam }) => trpcApi.listCourses({
-            limit: input.limit,
-            cursor: pageParam,
-          }),
-          getNextPageParam: options.getNextPageParam,
-        }),
-      },
-    },
-  },
 }))
 
 vi.mock('@/hooks/useAuth', () => ({
@@ -53,6 +26,7 @@ const mockPaginatedResponse = (
 describe('useVideoCourses', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    globalThis.__setTrpcHandler('courses.list', input => trpcApi.listCourses(input))
     ;(useAuth as any).mockReturnValue({ user: { id: 1 } })
   })
 
@@ -84,7 +58,7 @@ describe('useVideoCourses', () => {
     const { result } = renderHook(() => useVideoCourses(true))
 
     await waitFor(() => {
-      expect(trpcApi.listCourses).toHaveBeenCalledWith({ limit: 24, cursor: 0 })
+      expect(trpcApi.listCourses).toHaveBeenCalledWith(expect.objectContaining({ limit: 24, cursor: 0 }))
       expect(result.current.courses).toEqual(mockCourses)
       expect(result.current.isLoading).toBe(false)
     })
@@ -135,6 +109,7 @@ describe('useVideoCourses - sentinelRef', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    globalThis.__setTrpcHandler('courses.list', input => trpcApi.listCourses(input))
     ;(useAuth as any).mockReturnValue({ user: { id: 1 } })
     capturedCallback = undefined
     mockObserve.mockClear()

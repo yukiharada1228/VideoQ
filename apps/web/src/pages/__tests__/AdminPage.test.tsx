@@ -183,6 +183,15 @@ describe('AdminPage', () => {
     ).toBeInTheDocument()
   })
 
+  it('shows the server message from a failed tRPC mutation', async () => {
+    reindexAll.mockRejectedValueOnce(new Error('A reindex is already running'))
+    render(<AdminPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'admin.reindex.button' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'admin.reindex.confirm' }))
+    expect(await screen.findByText('A reindex is already running')).toBeInTheDocument()
+    expect(screen.queryByText('admin.reindex.error')).not.toBeInTheDocument()
+  })
+
   it('deletes a user after confirmation', async () => {
     deleteUser.mockResolvedValue({
       job_id: 'job-del',

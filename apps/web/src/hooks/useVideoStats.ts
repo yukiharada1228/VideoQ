@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import type { VideoStatusCounts } from '@videoq/trpc';
 import { trpc } from '@/lib/trpc';
@@ -68,10 +69,10 @@ export function useVideoStats<T extends VideoLike>(videos: T[]): VideoStats {
 }
 
 export function useVideoStatusCounts(enabled = true) {
-  const query = trpc.videos.statusCounts.useQuery(undefined, {
+  const query = useQuery(trpc.videos.statusCounts.queryOptions(undefined, {
     enabled,
     staleTime: 30_000,
-  });
+  }));
 
   return {
     stats: query.data ?? EMPTY_VIDEO_STATUS_COUNTS,

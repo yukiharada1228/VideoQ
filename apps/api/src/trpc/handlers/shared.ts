@@ -3,6 +3,8 @@ import type {
   ProcedureHandlers,
   ProcedureName,
   RpcCaller,
+  RpcInputMap,
+  RpcOutputMap,
 } from "@videoq/trpc";
 import { ApiError } from "../../shared/errors";
 
@@ -59,14 +61,16 @@ function normalizeError(error: unknown): never {
 }
 
 export function createRpcCaller(handlers: ProcedureHandlers): RpcCaller {
-  return (async (name, input) => {
+  return async <Name extends ProcedureName>(
+    name: Name,
+    input: RpcInputMap[Name],
+  ): Promise<RpcOutputMap[Name]> => {
     try {
-      const handler = handlers[name] as (value: typeof input) => Promise<unknown>;
-      return await handler(input);
+      return await handlers[name](input);
     } catch (error) {
       return normalizeError(error);
     }
-  }) as RpcCaller;
+  };
 }
 
 export function requireUserId(userId: string | null): string {

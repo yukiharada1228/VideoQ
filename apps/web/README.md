@@ -22,9 +22,10 @@ npm run build --workspace @videoq/web
 ## API client
 
 SPA 内部の型付き API は `@videoq/trpc` の `AppRouter` を共有し、
-`/api/trpc` へ接続します。Provider は `src/main.tsx`、client 設定は
-`src/lib/trpc.ts` にあります。画面とhookは通常のJSON操作に
-`trpc.*.useQuery()` / `useMutation()`を直接使います。`src/lib/api.ts` は
+`/api/trpc` へ接続します。`src/main.tsx` の `QueryClientProvider` でキャッシュを共有し、
+`src/lib/trpc.ts` に client と `@trpc/tanstack-react-query` の options proxy を定義します。
+画面とhookは `useQuery(trpc.*.queryOptions(input))` /
+`useMutation(trpc.*.mutationOptions())` を使います。`src/lib/api.ts` は
 SSE、multipart / direct upload、CSV、media URL、Better Authのように
 tRPCでは表現しないprotocol専用adapterだけを持ちます。
 
