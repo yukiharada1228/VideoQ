@@ -35,7 +35,31 @@ vi.mock("pg", () => {
       });
     }
   }
-  return { default: { Client: FakeClient } };
+  // vector-repository.ts (@yukiharada1228/langchain-postgres の PGEngine.fromPool) 用。
+  class FakePool {
+    async query(sqlOrConfig: unknown, args: unknown[] = []) {
+      return executeFakePgQuery({
+        calls,
+        sqlOrConfig: sqlOrConfig as PgQueryInput,
+        args,
+        rowsFor,
+      });
+    }
+    async connect() {
+      return {
+        query: (sqlOrConfig: unknown, args: unknown[] = []) =>
+          executeFakePgQuery({
+            calls,
+            sqlOrConfig: sqlOrConfig as PgQueryInput,
+            args,
+            rowsFor,
+          }),
+        release: () => {},
+      };
+    }
+    async end() {}
+  }
+  return { default: { Client: FakeClient, Pool: FakePool } };
 });
 
 const SECRET = "test-jwt-secret-chat";
@@ -56,16 +80,28 @@ const defaultRows = (sql: MatchableSql, args: unknown[] = []): Record<string, un
     return [{ id: 3, userId: "00000000-0000-4000-8000-000000000005", description: "Course about pgvector" }];
   if (sql.includes("video_course_members"))
     return [{ videoId: 60 }, { videoId: 61 }];
+  if (sql.includes("information_schema.columns"))
+    return [
+      { column_name: "langchain_id", data_type: "uuid" },
+      { column_name: "content", data_type: "text" },
+      { column_name: "embedding", data_type: "USER-DEFINED" },
+      { column_name: "user_id", data_type: "text" },
+      { column_name: "video_id", data_type: "bigint" },
+      { column_name: "langchain_metadata", data_type: "json" },
+    ];
   if (sql.includes("scene_embeddings"))
     return [
       {
+        langchain_id: "11111111-1111-4111-8111-111111111111",
         content: "scene text A",
         video_id: 60,
+        user_id: "00000000-0000-4000-8000-000000000005",
         langchain_metadata: {
           video_title: "Video A",
           start_time: "00:00:10",
           end_time: "00:00:20",
         },
+        distance: 0.1234,
       },
     ];
   if (sql.includes("chat_logs") && sql.includes("returning"))
@@ -408,9 +444,16 @@ describe("POST /messages（非ストリーミング）", () => {
       feedback: null,
     });
 
-    const search = calls.find((call) => call.sql.includes("scene_embeddings"))!;
-    expect(search.args).toEqual(["00000000-0000-4000-8000-000000000005", "[0.1,0.2]", 20]);
-    expect(String(search.sql)).toMatch(/ARRAY\[60,61\]::bigint\[\]/);
+    const search = calls.find(
+      (call) => call.sql.includes("scene_embeddings") && call.sql.includes("SELECT"),
+    )!;
+    expect(search.args).toEqual([
+      "00000000-0000-4000-8000-000000000005",
+      [60, 61],
+      "[0.1,0.2]",
+      20,
+    ]);
+    expect(String(search.sql)).toMatch(/user_id = \$1 AND video_id = ANY\(\$2\)/);
 
     // プロンプトは ja ロケール + course_context + 参照シーンを含む
     const chat = requests.find((r) => r.url.endsWith("/chat/completions"))!;

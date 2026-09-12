@@ -1,6 +1,6 @@
-import { sql } from "drizzle-orm";
-import { withDb } from "../db/pool";
-import { sqlNumberArray } from "../db/sql-array";
+import { PGEngine, PGVectorStore } from "@yukiharada1228/langchain-postgres";
+import type { EmbeddingsInterface } from "@langchain/core/embeddings";
+import pg from "pg";
 import type { Bindings } from "../types/bindings";
 
 const ALLOWED_TABLES = new Set(["scene_embeddings"]);
@@ -23,6 +23,20 @@ export type SceneHit = {
 
 export const RETRIEVER_K = 20;
 
+/**
+ * searchScenes は呼び出し側で計算済みの埋め込みベクトルを渡す
+ * （similaritySearchVectorWithScore）ため、PGVectorStore.initialize が
+ * 要求する Embeddings は実際には呼び出されない。
+ */
+const unsupportedEmbeddings: EmbeddingsInterface = {
+  embedDocuments(): Promise<number[][]> {
+    throw new Error("embedDocuments is unused: searchScenes only queries by precomputed vector.");
+  },
+  embedQuery(): Promise<number[]> {
+    throw new Error("embedQuery is unused: searchScenes only queries by precomputed vector.");
+  },
+};
+
 export async function searchScenes(
   env: Bindings,
   params: {
@@ -36,33 +50,34 @@ export async function searchScenes(
   const k = params.k ?? RETRIEVER_K;
   if (params.videoIds.length === 0) return [];
 
-  const vectorLiteral = `[${params.embedding.join(",")}]`;
-  return withDb(env, async (db) => {
-    const result = await db.execute(sql`
-      SELECT content, video_id, langchain_metadata
-        FROM ${sql.raw(table)}
-       WHERE user_id = ${params.userId}
-         AND video_id = ANY(${sqlNumberArray(params.videoIds)})
-       ORDER BY embedding <=> ${vectorLiteral}::vector
-       LIMIT ${k}
-    `);
-    const rows = result.rows as Array<{
-      content: string;
-      video_id: number;
-      langchain_metadata: unknown;
-    }>;
-    return rows.map((row) => {
-      const raw = row.langchain_metadata;
-      const meta: Record<string, unknown> =
-        typeof raw === "string" ? JSON.parse(raw) : (raw ?? {});
-      const text = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : String(v));
-      return {
-        content: row.content ?? "",
-        videoId: Number(row.video_id),
-        videoTitle: text(meta.video_title),
-        startTime: text(meta.start_time),
-        endTime: text(meta.end_time),
-      };
-    });
+  // 重要（要件 §11.4 / PoC #01d）: Pool もリクエストごとに生成し、
+  // リクエストをまたいで使い回さない（max: 1 で実質 pg.Client 相当）。
+  const pool = new pg.Pool({
+    connectionString: env.HYPERDRIVE.connectionString,
+    max: 1,
   });
+  const engine = PGEngine.fromPool(pool);
+  try {
+    const store = await PGVectorStore.initialize(engine, unsupportedEmbeddings, table, {
+      metadataColumns: ["user_id", "video_id"],
+    });
+    const hits = await store.similaritySearchVectorWithScore(
+      [...params.embedding],
+      k,
+      {
+        user_id: params.userId,
+        video_id: { $in: [...params.videoIds] },
+      },
+    );
+    const text = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : String(v));
+    return hits.map(([doc]) => ({
+      content: doc.pageContent ?? "",
+      videoId: Number(doc.metadata?.video_id),
+      videoTitle: text(doc.metadata?.video_title),
+      startTime: text(doc.metadata?.start_time),
+      endTime: text(doc.metadata?.end_time),
+    }));
+  } finally {
+    await engine.close();
+  }
 }
