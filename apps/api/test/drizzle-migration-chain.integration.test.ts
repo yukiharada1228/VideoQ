@@ -19,6 +19,11 @@ migrationDescribe("Drizzle greenfield migration chain", () => {
   it("applies every migration to an empty PostgreSQL database", async () => {
     const databaseName = `videoq_drizzle_${crypto.randomUUID().replaceAll("-", "")}`;
     const adminPool = new Pool({ connectionString: databaseUrl });
+    // node-postgres requires a Pool error listener; without one, a background
+    // error on an idle client crashes the process instead of just being ignored.
+    // `DROP DATABASE ... WITH (FORCE)` in the `finally` block below races with our
+    // own `pool.end()` above it and can surface exactly such an error here.
+    adminPool.on("error", () => {});
     const adminDb = drizzle(adminPool);
     const targetUrl = new URL(databaseUrl!);
     targetUrl.pathname = `/${databaseName}`;
@@ -27,6 +32,7 @@ migrationDescribe("Drizzle greenfield migration chain", () => {
     try {
       await adminDb.execute(sql.raw(`CREATE DATABASE "${databaseName}"`));
       targetPool = new Pool({ connectionString: targetUrl.toString(), max: 1 });
+      targetPool.on("error", () => {});
       const db = drizzle(targetPool);
 
       await migrate(db, { migrationsFolder: migrationDirectory });
