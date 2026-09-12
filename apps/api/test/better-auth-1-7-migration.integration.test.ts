@@ -63,6 +63,11 @@ migrationDescribe("Better Auth 1.7 Drizzle migration", () => {
   it("invalidates old clients and accepts Better Auth DCR resource identifiers", async () => {
     const databaseName = `videoq_ba17_${crypto.randomUUID().replaceAll("-", "")}`;
     const adminPool = new Pool({ connectionString: databaseUrl });
+    // node-postgres requires a Pool error listener; without one, a background
+    // error on an idle client crashes the process instead of just being ignored.
+    // `DROP DATABASE ... WITH (FORCE)` in the `finally` block below races with our
+    // own `pool.end()` above it and can surface exactly such an error here.
+    adminPool.on("error", () => {});
     const adminDb = drizzle(adminPool);
     const targetUrl = new URL(databaseUrl!);
     targetUrl.pathname = `/${databaseName}`;
@@ -72,6 +77,7 @@ migrationDescribe("Better Auth 1.7 Drizzle migration", () => {
     try {
       await adminDb.execute(sql.raw(`CREATE DATABASE "${databaseName}"`));
       targetPool = new Pool({ connectionString: targetUrl.toString(), max: 1 });
+      targetPool.on("error", () => {});
       const db = drizzle(targetPool);
 
       // Minimal Better Auth 1.6 schema touched by migrations 0017-0020.
